@@ -1,206 +1,370 @@
 import UIKit
-import Bugsnag
 import UserNotifications
-import Firebase
 import SDWebImage
 import YYImage
-import GiphyCoreSDK
+import AVFoundation
+import WebKit
+import FirebaseCore
+import Lottie
+import MixinServices
 
-@UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
-
+    
     static var current: AppDelegate {
         return UIApplication.shared.delegate as! AppDelegate
     }
-
-    var window: UIWindow?
-    private var autoCanceleNotification: DispatchWorkItem?
+    
+    lazy var mainWindow = Window(frame: UIScreen.main.bounds)
+    
+    private var pendingShortcutItem: UIApplicationShortcutItem?
     
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        #if RELEASE
-        initBugsnag()
         FirebaseApp.configure()
-        #endif
-        if SDWebImagePrefetcher.shared.context != nil {
-            SDWebImagePrefetcher.shared.context![.animatedImageClass] = YYImage.self
-        } else {
-            SDWebImagePrefetcher.shared.context = [.animatedImageClass: YYImage.self]
-        }
-        CommonUserDefault.shared.updateFirstLaunchDateIfNeeded()
-        if let account = AccountAPI.shared.account {
-            Bugsnag.configuration()?.setUser(account.user_id, withName: account.full_name, andEmail: account.identity_number)
-        }
-        CommonUserDefault.shared.checkUpdateOrInstallVersion()
-        NetworkManager.shared.startListening()
-        UNUserNotificationCenter.current().registerNotificationCategory()
-        UNUserNotificationCenter.current().delegate = self
+        MixinService.callMessageCoordinator = CallService.shared
+        reporterClass = CrashlyticalReporter.self
+        reporter.configure()
+        AppGroupUserDefaults.migrateIfNeeded()
+        updateSharedImageCacheConfig()
+        _ = ReachabilityManger.shared
+        _ = DarwinNotificationManager.shared
+        _ = CacheableAssetFileManager.shared
+        UNUserNotificationCenter.current().setNotificationCategories([.message])
+        UNUserNotificationCenter.current().delegate = NotificationManager.shared
         checkLogin()
-        UIApplication.shared.setMinimumBackgroundFetchInterval(UIApplication.backgroundFetchIntervalMinimum)
-        FileManager.default.writeLog(log: "\n-----------------------\nAppDelegate...didFinishLaunching...didLogin:\(AccountAPI.shared.didLogin)...\(Bundle.main.shortVersion)(\(Bundle.main.bundleVersion))")
+        ScreenLockManager.shared.lockScreenIfNeeded()
         checkJailbreak()
-        if let key = MixinKeys.giphy {
-            GiphyCore.configure(apiKey: key)
+        configAnalytics()
+        pendingShortcutItem = launchOptions?[UIApplication.LaunchOptionsKey.shortcutItem] as? UIApplicationShortcutItem
+        addObservers()
+        Logger.write(log: "\n-----------------------\n[AppDelegate]...didFinishLaunching...\(Bundle.main.shortVersion)(\(Bundle.main.bundleVersion))...\(UIApplication.shared.applicationStateString)")
+        if UIApplication.shared.applicationState == .background {
+            MixinService.isStopProcessMessages = false
+            WebSocketService.shared.connectIfNeeded()
+            BackgroundMessagingService.shared.begin(caller: "didFinishLaunchingWithOptions",
+                                                    stopsRegardlessApplicationState: false,
+                                                    completionHandler: nil)
         }
         return true
     }
+    
+    func applicationWillResignActive(_ application: UIApplication) {
+        
+    }
+    
+    func application(_ application: UIApplication, performActionFor shortcutItem: UIApplicationShortcutItem, completionHandler: @escaping (Bool) -> Void) {
+        pendingShortcutItem = shortcutItem
+    }
+    
+    func applicationDidEnterBackground(_ application: UIApplication) {
+        // Use this method to release shared resources, save user data, invalidate timers, and store enough application state information to restore your application to its current state in case it is terminated later.
+        // If your application supports background execution, this method is called instead of applicationWillTerminate: when the user quits.
+        guard LoginManager.shared.isLoggedIn else {
+            return
+        }
+        BackgroundMessagingService.shared.begin(caller: "applicationDidEnterBackground",
+                                                stopsRegardlessApplicationState: true,
+                                                completionHandler: nil)
+    }
+    
+    func applicationWillEnterForeground(_ application: UIApplication) {
+        // Called as part of the transition from the background to the active state; here you can undo many of the changes made on entering the background.
+    }
+    
+    func applicationDidBecomeActive(_ application: UIApplication) {
+        // Restart any tasks that were paused (or not yet started) while the application was inactive. If the application was previously in the background, optionally refresh the user interface.
 
+        AppGroupUserDefaults.isRunningInMainApp = true
+
+        guard LoginManager.shared.isLoggedIn else {
+            return
+        }
+        requestTimeout = 5
+        BackgroundMessagingService.shared.end()
+        MixinService.isStopProcessMessages = false
+        if WebSocketService.shared.isConnected && WebSocketService.shared.isRealConnected {
+            DispatchQueue.global().async {
+                guard canProcessMessages else {
+                    return
+                }
+                guard AppGroupUserDefaults.User.hasRestoreUploadAttachment else {
+                    return
+                }
+                AppGroupUserDefaults.User.hasRestoreUploadAttachment = false
+                JobService.shared.restoreUploadJobs()
+            }
+        }
+        WebSocketService.shared.connectIfNeeded()
+
+        if let chatVC = UIApplication.currentConversationViewController() {
+            if chatVC.conversationId == AppGroupUserDefaults.User.currentConversationId && AppGroupUserDefaults.User.reloadConversation {
+                AppGroupUserDefaults.User.reloadConversation = false
+                chatVC.dataSource?.reload()
+            }
+            SendMessageService.shared.sendReadMessages(conversationId: chatVC.conversationId)
+        } else {
+            AppGroupUserDefaults.User.currentConversationId = nil
+        }
+        
+        if let item = pendingShortcutItem, let itemType = UIApplicationShortcutItem.ItemType(rawValue: item.type) {
+            switch itemType {
+            case .scanQrCode:
+                pushCameraViewController()
+            case .wallet:
+                pushWalletViewController()
+            case .myQrCode:
+                showMyQrCode()
+            }
+        }
+        pendingShortcutItem = nil
+    }
+    
+    func applicationDidReceiveMemoryWarning(_ application: UIApplication) {
+        LOTAnimationCache.shared().clear()
+    }
+    
+    func applicationWillTerminate(_ application: UIApplication) {
+        // Called when the application is about to terminate. Save data if appropriate. See also applicationDidEnterBackground:.
+        AppGroupUserDefaults.isRunningInMainApp = ReceiveMessageService.shared.processing
+    }
+    
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        AccountAPI.updateSession(deviceToken: deviceToken.toHexString())
+    }
+    
+    func application(_ application: UIApplication, performFetchWithCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+        completionHandler(.newData)
+    }
+    
+    func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey : Any] = [:]) -> Bool {
+        return LoginManager.shared.isLoggedIn && UrlWindow.checkUrl(url: url, ignoreUnsupportMixinSchema: false)
+    }
+    
+    func applicationProtectedDataDidBecomeAvailable(_ application: UIApplication) {
+        if AppGroupUserDefaults.firstLaunchDate == nil {
+            AppGroupUserDefaults.firstLaunchDate = Date()
+        }
+        guard LoginManager.shared.account == nil else {
+            return
+        }
+        LoginManager.shared.reloadAccountFromUserDefaults()
+        configAnalytics()
+        if LoginManager.shared.isLoggedIn && !(mainWindow.rootViewController is HomeContainerViewController) {
+            checkLogin()
+        }
+    }
+    
+    func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable : Any], fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+        let isActive = UIApplication.shared.applicationState == .active
+        Logger.write(log: "[AppDelegate] received remote notification...isActive:\(isActive)")
+
+        guard LoginManager.shared.isLoggedIn, !AppGroupUserDefaults.User.needsUpgradeInMainApp else {
+            completionHandler(.noData)
+            return
+        }
+        guard !isActive else {
+            completionHandler(.noData)
+            return
+        }
+        MixinService.isStopProcessMessages = false
+        WebSocketService.shared.connectIfNeeded()
+        BackgroundMessagingService.shared.begin(caller: "didReceiveRemoteNotification",
+                                                stopsRegardlessApplicationState: false,
+                                                completionHandler: completionHandler)
+    }
+    
+}
+
+extension AppDelegate {
+    
+    private func addObservers() {
+        NotificationCenter.default.addObserver(self, selector: #selector(updateApplicationIconBadgeNumber), name: MixinService.messageReadStatusDidChangeNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(cleanForLogout), name: LoginManager.didLogoutNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleClockSkew), name: MixinService.clockSkewDetectedNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(webSocketDidConnect), name: WebSocketService.didConnectNotification, object: nil)
+        NotificationCenter.default.addObserver(JobService.shared, selector: #selector(JobService.restoreJobs), name: WebSocketService.didSendListPendingMessageNotification, object: nil)
+    }
+
+    @objc func webSocketDidConnect() {
+        guard canProcessMessages, UIApplication.isApplicationActive else {
+            return
+        }
+
+        if ReachabilityManger.shared.isReachableOnEthernetOrWiFi {
+            if AppGroupUserDefaults.User.autoBackup != .off || AppGroupUserDefaults.Account.hasUnfinishedBackup {
+                BackupJobQueue.shared.addJob(job: BackupJob())
+            }
+            if AppGroupUserDefaults.Account.canRestoreMedia {
+                BackupJobQueue.shared.addJob(job: RestoreJob())
+            }
+        }
+
+        if let date = AppGroupUserDefaults.Crypto.oneTimePrekeyRefreshDate, -date.timeIntervalSinceNow > 3600 * 2 {
+            ConcurrentJobQueue.shared.addJob(job: RefreshAssetsJob())
+            ConcurrentJobQueue.shared.addJob(job: RefreshOneTimePreKeysJob())
+        }
+        AppGroupUserDefaults.Crypto.oneTimePrekeyRefreshDate = Date()
+        ConcurrentJobQueue.shared.addJob(job: RefreshOffsetJob())
+    }
+    
+    @objc func updateApplicationIconBadgeNumber() {
+        DispatchQueue.global().async {
+            guard LoginManager.shared.isLoggedIn, !AppGroupUserDefaults.User.needsUpgradeInMainApp, !MixinService.isStopProcessMessages else {
+                return
+            }
+            let number = min(99, ConversationDAO.shared.getUnreadMessageCountWithoutMuted())
+            DispatchQueue.main.async {
+                UIApplication.shared.applicationIconBadgeNumber = number
+            }
+        }
+    }
+    
+    @objc func cleanForLogout() {
+        WKWebsiteDataStore.default().removeAllCookiesAndLocalStorage()
+        BackupJobQueue.shared.cancelAllOperations()
+        
+        UIApplication.shared.setShortcutItemsEnabled(false)
+        UIApplication.shared.applicationIconBadgeNumber = 1
+        UIApplication.shared.applicationIconBadgeNumber = 0
+        
+        UNUserNotificationCenter.current().removeAllNotifications()
+        UIApplication.shared.unregisterForRemoteNotifications()
+        
+        let oldRootViewController = mainWindow.rootViewController
+        mainWindow.rootViewController = LoginNavigationController.instance()
+        oldRootViewController?.navigationController?.removeFromParent()
+    }
+    
+    @objc func handleClockSkew() {
+        if let viewController = mainWindow.rootViewController as? ClockSkewViewController {
+            viewController.checkFailed()
+        } else {
+            mainWindow.rootViewController = makeInitialViewController()
+        }
+    }
+    
+}
+
+extension AppDelegate {
+    
+    private func checkLogin() {
+        mainWindow.backgroundColor = .black
+        if LoginManager.shared.isLoggedIn {
+            mainWindow.rootViewController = makeInitialViewController()
+            if ContactsManager.shared.authorization == .authorized && AppGroupUserDefaults.User.autoUploadsContacts {
+                DispatchQueue.global().asyncAfter(deadline: .now() + 2, execute: {
+                    PhoneContactAPI.upload(contacts: ContactsManager.shared.contacts)
+                })
+            }
+        } else {
+            if UIApplication.shared.isProtectedDataAvailable {
+                mainWindow.rootViewController = LoginNavigationController.instance()
+            } else {
+                mainWindow.rootViewController = R.storyboard.launchScreen().instantiateInitialViewController()
+            }
+        }
+        UIApplication.shared.setShortcutItemsEnabled(LoginManager.shared.isLoggedIn)
+        mainWindow.makeKeyAndVisible()
+    }
+    
+    private func configAnalytics() {
+        guard UIApplication.shared.isProtectedDataAvailable else {
+            return
+        }
+        if AppGroupUserDefaults.firstLaunchDate == nil {
+            AppGroupUserDefaults.firstLaunchDate = Date()
+        }
+        AppGroupUserDefaults.User.updateLastUpdateOrInstallDateIfNeeded()
+        reporter.registerUserInformation()
+        MixinServices.printSignalLog = { (message: UnsafePointer<Int8>!) -> Void in
+            let log = String(cString: message)
+            Logger.write(log: log)
+        }
+    }
+    
     private func checkJailbreak() {
         guard UIDevice.isJailbreak else {
             return
         }
         Keychain.shared.clearPIN()
     }
-
-    private func initBugsnag() {
-        guard let apiKey = MixinKeys.bugsnag else {
-            return
-        }
-        Bugsnag.start(withApiKey: apiKey)
-    }
-
-    func applicationWillResignActive(_ application: UIApplication) {
-        MXNAudioPlayer.shared().stop(withAudioSessionDeactivated: true)
-    }
-
-    func applicationDidEnterBackground(_ application: UIApplication) {
-        // Use this method to release shared resources, save user data, invalidate timers, and store enough application state information to restore your application to its current state in case it is terminated later.
-        // If your application supports background execution, this method is called instead of applicationWillTerminate: when the user quits.
-    }
-
-    func applicationWillEnterForeground(_ application: UIApplication) {
-        // Called as part of the transition from the background to the active state; here you can undo many of the changes made on entering the background.
-    }
-
-    func applicationDidBecomeActive(_ application: UIApplication) {
-        // Restart any tasks that were paused (or not yet started) while the application was inactive. If the application was previously in the background, optionally refresh the user interface.
-        UNUserNotificationCenter.current().removeAllNotifications()
-        WebSocketService.shared.checkConnectStatus()
-    }
     
-    func applicationDidReceiveMemoryWarning(_ application: UIApplication) {
-        SDImageCache.shared.clearMemory()
-    }
-
-    func applicationWillTerminate(_ application: UIApplication) {
-        // Called when the application is about to terminate. Save data if appropriate. See also applicationDidEnterBackground:.
-        MixinDatabase.shared.close()
-        SignalDatabase.shared.close()
-    }
-
-    func application(_ application: UIApplication, performFetchWithCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
-        completionHandler(.newData)
-    }
-
-    open func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey : Any] = [:]) -> Bool {
-        return UrlWindow.checkUrl(url: url)
-    }
-
-    func checkLogin() {
-        let window = UIWindow(frame: UIScreen.main.bounds)
-        window.backgroundColor = .black
-        if AccountAPI.shared.didLogin {
-            window.rootViewController = makeInitialViewController()
-            if ContactsManager.shared.authorization == .authorized {
-                DispatchQueue.global().asyncAfter(deadline: .now() + 2, execute: {
-                    PhoneContactAPI.shared.upload(contacts: ContactsManager.shared.contacts)
-                })
-            }
-        } else {
-            window.rootViewController = LoginNavigationController.instance()
-        }
-        window.makeKeyAndVisible()
-        self.window = window
+    private func updateSharedImageCacheConfig() {
+        SDImageCacheConfig.default.maxDiskSize = 1024 * bytesPerMegaByte
+        SDImageCacheConfig.default.maxDiskAge = -1
+        SDImageCacheConfig.default.diskCacheExpireType = .accessDate
     }
     
 }
 
-extension AppDelegate: UNUserNotificationCenterDelegate {
-
-    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
-        AccountAPI.shared.updateSession(deviceToken: deviceToken.toHexString())
-    }
-
-    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
-        if !handerQuickAction(response) {
-            dealWithRemoteNotification(response.notification.request.content.userInfo)
-        }
-        completionHandler()
-    }
-
-    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        let userInfo = notification.request.content.userInfo
-        if userInfo["fromWebSocket"] as? Bool ?? false {
-            completionHandler([.alert, .sound])
-            autoCanceleNotification?.cancel()
-            let workItem = DispatchWorkItem(block: {
-                guard let workItem = UIApplication.appDelegate().autoCanceleNotification, !workItem.isCancelled else {
-                    return
-                }
-                guard AccountAPI.shared.didLogin else {
-                    return
-                }
-                UNUserNotificationCenter.current().removeNotifications(identifier: NotificationIdentifier.showInAppNotification.rawValue)
-            })
-            self.autoCanceleNotification = workItem
-            DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(3), execute: workItem)
-        } else {
-            completionHandler([])
-        }
-    }
-
-    fileprivate func dealWithRemoteNotification(_ userInfo: [AnyHashable: Any]?, fromLaunch: Bool = false) {
-        guard let userInfo = userInfo, let conversationId = userInfo["conversation_id"] as? String else {
+extension AppDelegate {
+    
+    private func pushCameraViewController() {
+        guard let navigationController = UIApplication.homeNavigationController else {
             return
         }
         
-        DispatchQueue.global().async {
-            guard let conversation = ConversationDAO.shared.getConversation(conversationId: conversationId), conversation.status == ConversationStatus.SUCCESS.rawValue else {
-                return
+        func push() {
+            if navigationController.viewControllers.last is CameraViewController {
+               return
             }
-            DispatchQueue.main.async {
-                UIApplication.rootNavigationController()?.pushViewController(withBackRoot: ConversationViewController.instance(conversation: conversation))
-            }
+            let vc = CameraViewController.instance()
+            vc.asQrCodeScanner = true
+            navigationController.pushViewController(withBackRoot: vc)
         }
-        UNUserNotificationCenter.current().removeAllNotifications()
+        
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:
+            push()
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: .video, completionHandler: { (granted) in
+                guard granted else {
+                    return
+                }
+                DispatchQueue.main.async {
+                    push()
+                }
+            })
+        case .denied, .restricted:
+            navigationController.alertSettings(Localized.PERMISSION_DENIED_CAMERA)
+        @unknown default:
+            navigationController.alertSettings(Localized.PERMISSION_DENIED_CAMERA)
+        }
     }
-
-    @available(iOS 10.0, *)
-    func handerQuickAction(_ response: UNNotificationResponse) -> Bool {
-        let categoryIdentifier = response.notification.request.content.categoryIdentifier
-        let actionIdentifier = response.actionIdentifier
-        let inputText = (response as? UNTextInputNotificationResponse)?.userText
-        let userInfo = response.notification.request.content.userInfo
-        return handerQuickAction(categoryIdentifier: categoryIdentifier, handleActionIdentifier: actionIdentifier, inputText: inputText, userInfo: userInfo)
+    
+    private func pushWalletViewController() {
+        guard let navigationController = UIApplication.homeNavigationController else {
+            return
+        }
+        if let lastVC = (navigationController.viewControllers.last as? ContainerViewController)?.viewController, lastVC is WalletViewController {
+            return
+        }
+        WalletViewController.presentWallet()
     }
-
-    @discardableResult
-    func handerQuickAction(categoryIdentifier: String, handleActionIdentifier: String, inputText: String?, userInfo: [AnyHashable : Any]) -> Bool {
-        guard categoryIdentifier == NotificationIdentifier.actionCategory.rawValue, AccountAPI.shared.didLogin else {
-            return false
+    
+    private func showMyQrCode() {
+        if let window = UIApplication.currentActivity()?.view.subviews.compactMap({ $0 as? QrcodeWindow }).first, window.isShowingMyQrCode {
+            return
         }
-
-        guard let conversationId = userInfo["conversation_id"] as? String, let conversationCategory = userInfo["conversation_category"] as? String else {
-            return false
+        guard let account = LoginManager.shared.account else {
+            return
         }
-
-        switch handleActionIdentifier {
-        case NotificationIdentifier.replyAction.rawValue:
-            guard let text = inputText?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {
-                return false
-            }
-            var ownerUser: UserItem?
-            if let userId = userInfo["user_id"] as? String, let userFullName = userInfo["userFullName"] as? String, let userAvatarUrl = userInfo["userAvatarUrl"] as? String, let userIdentityNumber = userInfo["userIdentityNumber"] as? String {
-                ownerUser = UserItem.createUser(userId: userId, fullName: userFullName, identityNumber: userIdentityNumber, avatarUrl: userAvatarUrl, appId: userInfo["userAppId"] as? String)
-            }
-            var newMsg = Message.createMessage(category: MessageCategory.SIGNAL_TEXT.rawValue, conversationId: conversationId, createdAt: Date().toUTCString(), userId: AccountAPI.shared.accountUserId)
-            newMsg.content = text
-            DispatchQueue.global().async {
-                SendMessageService.shared.sendMessage(message: newMsg, ownerUser: ownerUser, isGroupMessage: conversationCategory == ConversationCategory.GROUP.rawValue)
-            }
-        default:
-            return false
-        }
-        return true
+        let qrcodeWindow = QrcodeWindow.instance()
+        qrcodeWindow.render(title: Localized.CONTACT_MY_QR_CODE,
+                            description: Localized.MYQRCODE_PROMPT,
+                            account: account)
+        qrcodeWindow.presentView()
     }
+    
 }
 
+extension AppDelegate {
+    
+    func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
+        if let homeContainerVC = UIApplication.homeContainerViewController, homeContainerVC.galleryIsOnTopMost,  homeContainerVC.galleryViewController.currentItemViewController is GalleryVideoItemViewController {
+            return .all
+        }
+        return .portrait
+        
+    }
+    
+}

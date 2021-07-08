@@ -1,40 +1,59 @@
 import UIKit
 import PhoneNumberKit
+import MixinServices
 
-class AddPeopleViewController: UIViewController {
+class AddPeopleViewController: KeyboardBasedLayoutViewController {
     
-    @IBOutlet weak var keywordTextField: UITextField!
+    @IBOutlet weak var searchBoxView: SearchBoxView!
     @IBOutlet weak var myIdLabel: UILabel!
-    @IBOutlet weak var searchButtonWrapper: UIView!
-    @IBOutlet weak var searchButton: StateResponsiveButton!
+    @IBOutlet weak var searchButton: RoundedButton!
     
-    @IBOutlet weak var searchButtonBottomConstraint: NSLayoutConstraint!
+    @IBOutlet weak var keyboardPlaceholderHeightConstraint: NSLayoutConstraint!
     
     private let legalKeywordCharactersSet = Set("+0123456789")
     private let phoneNumberKit = PhoneNumberKit()
     
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        if let id = AccountAPI.shared.account?.identity_number {
-            myIdLabel.text = Localized.CONTACT_MY_IDENTITY_NUMBER(id: id)
-        }
-        keywordTextField.becomeFirstResponder()
-        NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillChangeFrame(_:)), name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
-    }
-
-    deinit {
-        NotificationCenter.default.removeObserver(self)
+    private var keywordTextField: UITextField {
+        return searchBoxView.textField
     }
     
-    @IBAction func checkKeywordAction(_ sender: Any) {
+    private var keyword: String {
+        return keywordTextField.text ?? ""
+    }
+    
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        if let id = LoginManager.shared.account?.identity_number {
+            myIdLabel.text = Localized.CONTACT_MY_IDENTITY_NUMBER(id: id)
+        }
+        searchButton.isEnabled = false
+        keywordTextField.keyboardType = .phonePad
+        keywordTextField.placeholder = Localized.PLACEHOLDER_MIXIN_ID_OR_PHONE
+        keywordTextField.addTarget(self, action: #selector(checkKeywordAction), for: .editingChanged)
+        keywordTextField.becomeFirstResponder()
+    }
+    
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        if !keywordTextField.isFirstResponder {
+            keywordTextField.becomeFirstResponder()
+        }
+    }
+    
+    override func layout(for keyboardFrame: CGRect) {
+        keyboardPlaceholderHeightConstraint.constant = view.frame.height - keyboardFrame.origin.y
+        view.layoutIfNeeded()
+    }
+    
+    @objc func checkKeywordAction(_ sender: Any) {
         let filteredKeyword = String(keyword.filter(legalKeywordCharactersSet.contains))
         keywordTextField.text = filteredKeyword
-        searchButtonWrapper.isHidden = !isLegalKeyword(filteredKeyword)
+        searchButton.isEnabled = isLegalKeyword(filteredKeyword)
     }
     
     @IBAction func searchAction(_ sender: Any) {
         searchButton.isBusy = true
-        UserAPI.shared.search(keyword: keyword) { [weak self] (result) in
+        UserAPI.search(keyword: keyword) { [weak self] (result) in
             guard let weakSelf = self else {
                 return
             }
@@ -42,26 +61,20 @@ class AddPeopleViewController: UIViewController {
             switch result {
             case let .success(user):
                 UserDAO.shared.updateUsers(users: [user])
-                UserWindow.instance().updateUser(user: UserItem.createUser(from: user), refreshUser: false).presentView()
+                let userItem = UserItem.createUser(from: user)
+                let vc = UserProfileViewController(user: userItem)
+                vc.updateUserFromRemoteAfterReloaded = false
+                weakSelf.present(vc, animated: true, completion: nil)
             case let .failure(error):
-                NotificationCenter.default.postOnMain(name: .ErrorMessageDidAppear, object: error.code == 404 ? Localized.CONTACT_SEARCH_NOT_FOUND : error.localizedDescription)
+                let text = error.localizedDescription(overridingNotFoundDescriptionWith: R.string.localizable.user_not_found())
+                showAutoHiddenHud(style: .error, text: text)
             }
         }
     }
     
-    @objc func keyboardWillChangeFrame(_ notification: Notification) {
-        let endFrame: CGRect = (notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue ?? .zero
-        let windowHeight = AppDelegate.current.window!.bounds.height
-        searchButtonBottomConstraint.constant = windowHeight - endFrame.origin.y
-    }
-    
     class func instance() -> UIViewController {
-        let vc = Storyboard.contact.instantiateViewController(withIdentifier: "add_people")
-        return ContainerViewController.instance(viewController: vc, title: Localized.NAVIGATION_TITLE_ADD_PEOPLE)
-    }
-    
-    private var keyword: String {
-        return keywordTextField.text ?? ""
+        let vc = R.storyboard.contact.add_people()!
+        return ContainerViewController.instance(viewController: vc, title: R.string.localizable.profile_add_contact())
     }
     
     private func isLegalKeyword(_ keyword: String) -> Bool {

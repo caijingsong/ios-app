@@ -6,20 +6,21 @@ class AuthorizationScopeCell: UITableViewCell {
 
     @IBOutlet weak var nameLabel: UILabel!
     @IBOutlet weak var descLabel: UILabel!
-    @IBOutlet weak var selectionImageView: UIImageView!
+    @IBOutlet weak var checkmarkView: CheckmarkView!
 
     override func awakeFromNib() {
         super.awakeFromNib()
         selectedBackgroundView = UIView()
     }
 
-    func render(name: String, desc: String) {
+    func render(name: String, desc: String, forceChecked: Bool) {
         nameLabel.text = name
         descLabel.text = desc
+        isUserInteractionEnabled = !forceChecked
     }
 
     override func setSelected(_ selected: Bool, animated: Bool) {
         super.setSelected(selected, animated: animated)
-        selectionImageView.image = selected ? #imageLiteral(resourceName: "ic_member_selected") : #imageLiteral(resourceName: "ic_member_not_selected")
+        checkmarkView.status = selected ? .selected : .deselected
     }
 }

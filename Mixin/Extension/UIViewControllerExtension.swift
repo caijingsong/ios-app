@@ -33,7 +33,7 @@ extension UIViewController {
     func alertSettings(_ message: String) {
         let alc = UIAlertController(title: message, message: nil, preferredStyle: .alert)
         alc.addAction(UIAlertAction(title: Localized.DIALOG_BUTTON_CANCEL, style: .cancel, handler: nil))
-        alc.addAction(UIAlertAction(title: Localized.SETTING_TITLE, style: .default, handler: { (_) in
+        alc.addAction(UIAlertAction(title: R.string.localizable.setting_title(), style: .default, handler: { (_) in
             UIApplication.openAppSettings()
         }))
         self.present(alc, animated: true, completion: nil)
@@ -49,5 +49,11 @@ extension UIViewController {
         controller.actions[1].isEnabled = false
         return controller
     }
-
+    
+    func presentGotItAlertController(title: String) {
+        let alert = UIAlertController(title: title, message: nil, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: R.string.localizable.dialog_button_got_it(), style: .default, handler: nil))
+        present(alert, animated: true, completion: nil)
+    }
+    
 }

@@ -1,6 +1,6 @@
 import UIKit
 
-class StickersCollectionViewController: UIViewController {
+class StickersCollectionViewController: UIViewController, ConversationAccessible {
     
     let cellReuseId = "StickerCell"
     
@@ -22,18 +22,13 @@ class StickersCollectionViewController: UIViewController {
         return true
     }
     
-    var conversationViewController: ConversationViewController? {
-        return parent?.parent?.parent as? ConversationViewController
-    }
-    
     var animated: Bool = false {
         didSet {
-            for case let cell as AnimatedImageCollectionViewCell in collectionView.visibleCells {
-                cell.imageView.autoPlayAnimatedImage = animated
+            for case let cell as StickerPreviewCell in collectionView.visibleCells {
                 if animated {
-                    cell.imageView.startAnimating()
+                    cell.stickerView.startAnimating()
                 } else {
-                    cell.imageView.stopAnimating()
+                    cell.stickerView.stopAnimating()
                 }
             }
         }
@@ -43,15 +38,16 @@ class StickersCollectionViewController: UIViewController {
         let frame = CGRect(x: 0, y: 0, width: 375, height: 200)
         let layout = layoutClass.init(numberOfItemsPerRow: StickerInputModelController.numberOfItemsPerRow, spacing: 8)
         let view = UICollectionView(frame: frame, collectionViewLayout: layout)
-        view.showsHorizontalScrollIndicator = false
-        view.showsVerticalScrollIndicator = false
-        view.backgroundColor = .white
         self.view = view
     }
     
     override func viewDidLoad() {
         super.viewDidLoad()
-        collectionView.register(AnimatedImageCollectionViewCell.self, forCellWithReuseIdentifier: cellReuseId)
+        collectionView.showsHorizontalScrollIndicator = false
+        collectionView.showsVerticalScrollIndicator = false
+        collectionView.backgroundColor = .background
+        collectionView.alwaysBounceVertical = true
+        collectionView.register(StickerPreviewCell.self, forCellWithReuseIdentifier: cellReuseId)
         collectionView.dataSource = self
         collectionView.delegate = self
     }
@@ -77,21 +73,19 @@ extension StickersCollectionViewController: UICollectionViewDelegate {
     }
     
     func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
-        guard let cell = cell as? AnimatedImageCollectionViewCell else {
+        guard let cell = cell as? StickerPreviewCell else {
             return
         }
         if animated {
-            cell.imageView.autoPlayAnimatedImage = true
-            cell.imageView.startAnimating()
+            cell.stickerView.startAnimating()
         }
     }
     
     func collectionView(_ collectionView: UICollectionView, didEndDisplaying cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
-        guard let cell = cell as? AnimatedImageCollectionViewCell else {
+        guard let cell = cell as? StickerPreviewCell else {
             return
         }
-        cell.imageView.autoPlayAnimatedImage = false
-        cell.imageView.stopAnimating()
+        cell.stickerView.stopAnimating()
     }
     
 }

@@ -1,14 +1,16 @@
 import UIKit
+import SnapKit
 
 class GeneralTableViewHeader: UITableViewHeaderFooterView {
-
+    
     var label: UILabel!
+    var labelTopConstraint: NSLayoutConstraint!
     
     override init(reuseIdentifier: String?) {
         super.init(reuseIdentifier: reuseIdentifier)
         prepare()
     }
-
+    
     required init?(coder aDecoder: NSCoder) {
         super.init(coder: aDecoder)
         prepare()
@@ -17,13 +19,17 @@ class GeneralTableViewHeader: UITableViewHeaderFooterView {
     private func prepare() {
         clipsToBounds = true
         label = UILabel()
-        label.font = UIFont.systemFont(ofSize: 13)
-        label.textColor = .gray
+        label.setFont(scaledFor: .systemFont(ofSize: 14), adjustForContentSize: true)
+        label.textColor = .text
         label.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(label)
-        let constraints = [label.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 15),
-                           label.centerYAnchor.constraint(equalTo: contentView.centerYAnchor)]
-        NSLayoutConstraint.activate(constraints)
+        label.snp.makeConstraints { (make) in
+            make.leading.equalToSuperview().offset(20)
+            make.trailing.equalToSuperview().offset(-20).priority(.almostRequired)
+        }
+        labelTopConstraint = label.topAnchor.constraint(equalTo: topAnchor)
+        labelTopConstraint.isActive = true
+        contentView.backgroundColor = .background
     }
     
 }

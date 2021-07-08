@@ -1,15 +1,36 @@
 import Foundation
+import MixinServices
 
-protocol AttachmentLoadingViewModel: class {
+protocol AttachmentLoadingViewModel: AnyObject {
+    var transcriptId: String? { get set }
+    var isLoading: Bool { get set }
     var progress: Double? { get set }
-    var showPlayIconAfterFinished: Bool { get }
+    var showPlayIconOnMediaStatusDone: Bool { get }
     var operationButtonStyle: NetworkOperationButton.Style { get set }
-    var messageIsSentByMe: Bool { get }
+    var shouldUpload: Bool { get } // false if should download
     var automaticallyLoadsAttachment: Bool { get }
     var mediaStatus: String? { get set }
     var sizeRepresentation: String { get }
-    func beginAttachmentLoading()
-    func cancelAttachmentLoading(markMediaStatusCancelled: Bool)
+    var shouldAutoDownload: Bool { get }
+    func beginAttachmentLoading(isTriggeredByUser: Bool)
+    func cancelAttachmentLoading(isTriggeredByUser: Bool)
+    func shouldBeginAttachmentLoading(isTriggeredByUser: Bool) -> Bool
+    func updateMediaStatus(message: MessageItem, status: MediaStatus)
+}
+
+extension AttachmentLoadingViewModel where Self: MessageViewModel {
+
+    func updateMediaStatus(message: MessageItem, status: MediaStatus) {
+        guard message.mediaStatus != status.rawValue else {
+            return
+        }
+        if let tid = transcriptId {
+            TranscriptMessageDAO.shared.updateMediaStatus(status, transcriptId: tid, messageId: message.messageId)
+        } else {
+            MessageDAO.shared.updateMediaStatus(messageId: message.messageId, status: status, conversationId: message.conversationId)
+        }
+    }
+
 }
 
 enum ProgressUnit {
@@ -33,8 +54,12 @@ enum ProgressUnit {
 
 extension AttachmentLoadingViewModel where Self: MessageViewModel {
     
-    var messageIsSentByMe: Bool {
-        return message.userId == AccountAPI.shared.accountUserId
+    var shouldUpload: Bool {
+        let hasMediaUrl = message.mediaUrl != nil
+        let hasLocalIdentifier = message.mediaLocalIdentifier != nil
+        return (message.userId == myUserId)
+            && (hasMediaUrl || hasLocalIdentifier)
+            && (transcriptId == nil)
     }
     
     var mediaStatus: String? {
@@ -45,6 +70,7 @@ extension AttachmentLoadingViewModel where Self: MessageViewModel {
             message.mediaStatus = newValue
             if newValue != MediaStatus.PENDING.rawValue {
                 progress = nil
+                isLoading = false
             }
             updateOperationButtonStyle()
         }
@@ -61,28 +87,37 @@ extension AttachmentLoadingViewModel where Self: MessageViewModel {
         }
     }
     
-    internal func updateOperationButtonStyle() {
-        let sentByMe = message.userId == AccountAPI.shared.accountUserId
+    func updateOperationButtonStyle() {
         if let mediaStatus = mediaStatus {
             switch mediaStatus {
             case MediaStatus.PENDING.rawValue:
-                operationButtonStyle = .busy(progress: 0)
+                if isLoading || shouldUpload {
+                    operationButtonStyle = .busy(progress: 0)
+                } else {
+                    fallthrough
+                }
             case MediaStatus.CANCELED.rawValue:
-                if sentByMe {
+                if shouldUpload {
                     operationButtonStyle = .upload
                 } else {
                     operationButtonStyle = .download
                 }
-            case MediaStatus.DONE.rawValue:
-                operationButtonStyle = .finished(showPlayIcon: showPlayIconAfterFinished)
+            case MediaStatus.DONE.rawValue, MediaStatus.READ.rawValue:
+                operationButtonStyle = .finished(showPlayIcon: showPlayIconOnMediaStatusDone)
             case MediaStatus.EXPIRED.rawValue:
                 operationButtonStyle = .expired
             default:
                 break
             }
         } else {
-            operationButtonStyle = .finished(showPlayIcon: showPlayIconAfterFinished)
+            operationButtonStyle = .finished(showPlayIcon: showPlayIconOnMediaStatusDone)
         }
+    }
+    
+    func shouldBeginAttachmentLoading(isTriggeredByUser: Bool) -> Bool {
+        let mediaStatusIsPendingOrCancelled = message.mediaStatus == MediaStatus.PENDING.rawValue || message.mediaStatus == MediaStatus.CANCELED.rawValue
+        return (message.mediaStatus == MediaStatus.PENDING.rawValue && shouldAutoDownload)
+            || (mediaStatusIsPendingOrCancelled && isTriggeredByUser)
     }
     
     private func sizeRepresentation(ofSizeInBytes size: Int64, unit: ProgressUnit) -> String {

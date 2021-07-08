@@ -1,10 +1,11 @@
 import UIKit
 import YYImage
 import Photos
+import MixinServices
 
 class StickerManagerViewController: UICollectionViewController {
 
-    private var stickers = [Sticker]()
+    private var stickers = [StickerItem]()
     private var isDeleteStickers = false
     private var pickerContentOffset = CGPoint.zero
 
@@ -14,17 +15,22 @@ class StickerManagerViewController: UICollectionViewController {
         let itemWidth = (UIScreen.main.bounds.size.width - (rowCount + 1) * 8) / rowCount
         return CGSize(width: itemWidth, height: itemWidth)
     }()
-
+    
+    class func instance() -> UIViewController {
+        let vc = R.storyboard.chat.sticker_manager()!
+        return ContainerViewController.instance(viewController: vc, title: Localized.STICKER_MANAGER_TITLE)
+    }
+    
     override func viewDidLoad() {
         super.viewDidLoad()
         fetchStickers()
-
-        NotificationCenter.default.addObserver(forName: .FavoriteStickersDidChange, object: nil, queue: .main) { [weak self] (_) in
-            self?.fetchStickers()
-        }
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(fetchStickers),
+                                               name: StickerDAO.favoriteStickersDidChangeNotification,
+                                               object: nil)
     }
-
-    private func fetchStickers() {
+    
+    @objc private func fetchStickers() {
         DispatchQueue.global().async { [weak self] in
             let stickers = StickerDAO.shared.getFavoriteStickers()
             DispatchQueue.main.async {
@@ -34,12 +40,7 @@ class StickerManagerViewController: UICollectionViewController {
             }
         }
     }
-
-    class func instance() -> UIViewController {
-        let vc = Storyboard.chat.instantiateViewController(withIdentifier: "sticker_manager") as! StickerManagerViewController
-        return ContainerViewController.instance(viewController: vc, title: Localized.STICKER_MANAGER_TITLE)
-    }
-
+    
 }
 
 extension StickerManagerViewController: ContainerViewControllerDelegate {
@@ -67,7 +68,7 @@ extension StickerManagerViewController: ContainerViewControllerDelegate {
                 return stickers[indexPath.row].stickerId
             }
 
-            StickerAPI.shared.removeSticker(stickerIds: stickerIds, completion: { [weak self] (result) in
+            StickerAPI.removeSticker(stickerIds: stickerIds, completion: { [weak self] (result) in
                 guard let weakSelf = self else {
                     return
                 }
@@ -89,8 +90,8 @@ extension StickerManagerViewController: ContainerViewControllerDelegate {
                             weakSelf.fetchStickers()
                         }
                     }
-                case .failure:
-                    NotificationCenter.default.postOnMain(name: .ErrorMessageDidAppear, object: Localized.STICKER_REMOVE_FAILED)
+                case let .failure(error):
+                    showAutoHiddenHud(style: .error, text: error.localizedDescription)
                 }
             })
         } else {
@@ -119,23 +120,22 @@ extension StickerManagerViewController: UICollectionViewDelegateFlowLayout {
     }
 
     override func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-        let cell = collectionView.dequeueReusableCell(withReuseIdentifier: "cell_identifier_favorite_sticker", for: indexPath) as! FavoriteStickerCell
+        let cell = collectionView.dequeueReusableCell(withReuseIdentifier: R.reuseIdentifier.favorite_sticker, for: indexPath)!
         if isDeleteStickers {
             cell.render(sticker: stickers[indexPath.row], isDeleteStickers: isDeleteStickers)
         } else {
-            if indexPath.row == stickers.count {
+            if indexPath.row == 0 {
                 cell.selectionImageView.isHidden = true
-                cell.stickerImageView.image = #imageLiteral(resourceName: "ic_sticker_add")
+                cell.stickerView.load(image: R.image.ic_sticker_add(), contentMode: .center)
             } else {
-                cell.render(sticker: stickers[indexPath.row], isDeleteStickers: isDeleteStickers)
+                cell.render(sticker: stickers[indexPath.row-1], isDeleteStickers: isDeleteStickers)
             }
         }
-
         return cell
     }
 
     override func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
-        guard !isDeleteStickers, indexPath.row == stickers.count else {
+        guard !isDeleteStickers, indexPath.row == 0 else {
             return
         }
 
@@ -144,7 +144,7 @@ extension StickerManagerViewController: UICollectionViewDelegateFlowLayout {
                 return
             }
 
-            let picker = PhotoAssetPickerNavigationController.instance(pickerDelegate: weakSelf, isFilterCustomSticker: true, scrollToOffset: weakSelf.pickerContentOffset)
+            let picker = PhotoAssetPickerNavigationController.instance(pickerDelegate: weakSelf, showImageOnly: true, scrollToOffset: weakSelf.pickerContentOffset)
             weakSelf.present(picker, animated: true, completion: nil)
         }
     }
@@ -155,37 +155,8 @@ extension StickerManagerViewController: PhotoAssetPickerDelegate {
 
     func pickerController(_ picker: PickerViewController, contentOffset: CGPoint, didFinishPickingMediaWithAsset asset: PHAsset) {
         self.pickerContentOffset = contentOffset
-        navigationController?.pushViewController(StickerAddViewController.instance(asset: asset), animated: true)
+        let vc = StickerAddViewController.instance(source: .asset(asset))
+        navigationController?.pushViewController(vc, animated: true)
     }
 
-}
-
-
-class FavoriteStickerCell: UICollectionViewCell {
-
-    @IBOutlet weak var selectionImageView: UIImageView!
-    @IBOutlet weak var stickerImageView: YYAnimatedImageView!
-    @IBOutlet weak var selectionMaskView: UIView!
-    
-
-    override func awakeFromNib() {
-        super.awakeFromNib()
-        selectedBackgroundView = UIView()
-    }
-
-    override var isSelected: Bool {
-        didSet {
-            if !selectionImageView.isHidden {
-                selectionImageView.image = isSelected ? #imageLiteral(resourceName: "ic_member_selected") : #imageLiteral(resourceName: "ic_sticker_normal")
-                selectionMaskView.isHidden = !isSelected
-            }
-        }
-    }
-
-    func render(sticker: Sticker, isDeleteStickers: Bool) {
-        selectionImageView.isHidden = !isDeleteStickers
-        if let url = URL(string: sticker.assetUrl) {
-            stickerImageView.sd_setImage(with: url)
-        }
-    }
 }

@@ -1,31 +1,129 @@
 import UIKit
+import MixinServices
 
 class AddressViewController: UIViewController {
-
+    
     @IBOutlet weak var tableView: UITableView!
-
+    @IBOutlet weak var searchBoxView: SearchBoxView!
+    @IBOutlet weak var newAddressButton: UIButton!
+    
+    private let cellReuseId = "address"
+    
     private lazy var deleteAction = UITableViewRowAction(style: .destructive, title: Localized.MENU_DELETE, handler: tableViewCommitDeleteAction)
-
+    
     private var asset: AssetItem!
     private var addresses = [Address]()
-
+    private var searchResult = [Address]()
+    private var isSearching: Bool {
+        return !(searchBoxView.textField.text ?? "").isEmpty
+    }
+    
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+    
     override func viewDidLoad() {
         super.viewDidLoad()
-
-        tableView.rowHeight = 80
-        tableView.register(UINib(nibName: "AddressCell", bundle: .main), forCellReuseIdentifier: AddressCell.cellReuseId)
+        searchBoxView.textField.addTarget(self, action: #selector(searchAction(_:)), for: .editingChanged)
         tableView.dataSource = self
         tableView.delegate = self
         tableView.tableFooterView = UIView()
-        tableView.reloadData()
-
-        loadAddresses()
-        NotificationCenter.default.addObserver(forName: .AddressDidChange, object: nil, queue: .main) { [weak self] (_) in
-            self?.loadAddresses()
+        reloadLocalAddresses()
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(reloadLocalAddresses),
+                                               name: AddressDAO.addressDidChangeNotification,
+                                               object: nil)
+        WithdrawalAPI.addresses(assetId: asset.assetId) { (result) in
+            guard case let .success(addresses) = result else {
+                return
+            }
+            DispatchQueue.global().async {
+                AddressDAO.shared.insertOrUpdateAddress(addresses: addresses)
+            }
         }
     }
+    
+    @IBAction func searchAction(_ sender: Any) {
+        let keyword = (searchBoxView.textField.text ?? "").uppercased()
+        if keyword.isEmpty {
+            searchResult = []
+        } else {
+            searchResult = addresses.filter { $0.label.uppercased().contains(keyword) }
+        }
+        tableView.reloadData()
+    }
+    
+    @IBAction func newAddressAction() {
+        let vc = NewAddressViewController.instance(asset: asset)
+        UIApplication.homeNavigationController?.pushViewController(vc, animated: true)
+    }
+    
+    class func instance(asset: AssetItem) -> UIViewController {
+        let vc = R.storyboard.wallet.address_list()!
+        vc.asset = asset
+        let container = ContainerViewController.instance(viewController: vc, title: Localized.ADDRESS_LIST_TITLE)
+        return container
+    }
+    
+}
 
-    private func loadAddresses() {
+extension AddressViewController: ContainerViewControllerDelegate {
+    
+    func barRightButtonTappedAction() {
+        newAddressAction()
+    }
+    
+    func imageBarRightButton() -> UIImage? {
+        return R.image.ic_title_add()
+    }
+    
+}
+
+extension AddressViewController: UITableViewDataSource, UITableViewDelegate {
+    
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        return isSearching ? searchResult.count : addresses.count
+    }
+    
+    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell{
+        let cell = tableView.dequeueReusableCell(withIdentifier: cellReuseId) as! AddressCell
+        if isSearching {
+            cell.render(address: searchResult[indexPath.row], asset: asset)
+        } else {
+            cell.render(address: addresses[indexPath.row], asset: asset)
+        }
+        return cell
+    }
+    
+    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        tableView.deselectRow(at: indexPath, animated: true)
+        guard let navigationController = navigationController else {
+            return
+        }
+        let address = isSearching ? searchResult[indexPath.row] : addresses[indexPath.row]
+        
+        let vc = TransferOutViewController.instance(asset: asset, type: .address(address))
+        var viewControllers = navigationController.viewControllers
+        if let index = viewControllers.lastIndex(where: { ($0 as? ContainerViewController)?.viewController == self }) {
+            viewControllers.remove(at: index)
+        }
+        viewControllers.append(vc)
+        navigationController.setViewControllers(viewControllers, animated: true)
+    }
+    
+    func tableView(_ tableView: UITableView, canEditRowAt indexPath: IndexPath) -> Bool {
+        return !isSearching
+    }
+    
+    func tableView(_ tableView: UITableView, editActionsForRowAt indexPath: IndexPath) -> [UITableViewRowAction]? {
+        return [deleteAction]
+    }
+    
+}
+
+extension AddressViewController {
+    
+    @objc private func reloadLocalAddresses() {
         let assetId = asset.assetId
         DispatchQueue.global().async { [weak self] in
             let addresses = AddressDAO.shared.getAddresses(assetId: assetId)
@@ -34,93 +132,21 @@ class AddressViewController: UIViewController {
                     return
                 }
                 weakSelf.addresses = addresses
+                weakSelf.searchBoxView.isHidden = addresses.isEmpty
+                weakSelf.newAddressButton.isHidden = !addresses.isEmpty
                 weakSelf.tableView.reloadData()
             }
         }
     }
     
-    class func instance(asset: AssetItem) -> UIViewController {
-        let vc = Storyboard.wallet.instantiateViewController(withIdentifier: "address_list") as! AddressViewController
-        vc.asset = asset
-        let container = ContainerViewController.instance(viewController: vc, title: Localized.ADDRESS_LIST_TITLE)
-        container.automaticallyAdjustsScrollViewInsets = false
-        return container
-    }
-}
-
-extension AddressViewController: ContainerViewControllerDelegate {
-    func barRightButtonTappedAction() {
-        let vc = NewAddressViewController.instance(asset: asset)
-        UIApplication.rootNavigationController()?.pushViewController(vc, animated: true)
-    }
-
-    func imageBarRightButton() -> UIImage? {
-        return #imageLiteral(resourceName: "ic_titlebar_add")
-    }
-
-}
-
-extension AddressViewController {
-
     private func tableViewCommitDeleteAction(action: UITableViewRowAction, indexPath: IndexPath) {
-        let alc = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
-        alc.addAction(UIAlertAction(title: Localized.MENU_DELETE, style: .destructive, handler: { [weak self](action) in
-            self?.deleteAction(indexPath: indexPath)
-        }))
-        alc.addAction(UIAlertAction(title: Localized.DIALOG_BUTTON_CANCEL, style: .cancel, handler: nil))
-        present(alc, animated: true, completion: nil)
-        tableView.setEditing(false, animated: true)
-    }
-
-    private func deleteAction(indexPath: IndexPath) {
-        let addressId = addresses[indexPath.row].addressId
-        tableView.beginUpdates()
-        addresses.remove(at: indexPath.row)
-        tableView.deleteRows(at: [indexPath], with: .fade)
-        tableView.endUpdates()
-
-        PinTipsView.instance(tips: Localized.WALLET_PASSWORD_ADDRESS_TIPS) { [weak self](pin) in
-            self?.saveAddressAction(pin: pin, addressId: addressId)
-            }.presentPopupControllerAnimated()
-    }
-
-    private func saveAddressAction(pin: String, addressId: String) {
-        let assetId = asset.assetId
-        WithdrawalAPI.shared.delete(addressId: addressId, pin: pin) { (result) in
-            switch result {
-            case .success:
-                AddressDAO.shared.deleteAddress(assetId: assetId, addressId: addressId)
-            case .failure:
-                break
-            }
+        if searchBoxView.textField.isFirstResponder {
+            searchBoxView.textField.resignFirstResponder()
         }
-    }
-}
-
-extension AddressViewController: UITableViewDataSource, UITableViewDelegate {
-  
-    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return addresses.count
+        let address = addresses[indexPath.row]
+        tableView.setEditing(false, animated: true)
+        
+        AddressWindow.instance().presentPopupControllerAnimated(action: .delete, asset: asset, addressRequest: nil, address: address, dismissCallback: nil)
     }
     
-    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell{
-        let cell = tableView.dequeueReusableCell(withIdentifier: AddressCell.cellReuseId) as! AddressCell
-        cell.render(address: addresses[indexPath.row], asset: asset)
-        cell.accessoryType = .disclosureIndicator
-        return cell
-    }
-
-    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        tableView.deselectRow(at: indexPath, animated: true)
-        let vc = NewAddressViewController.instance(asset: asset, address: addresses[indexPath.row])
-        UIApplication.rootNavigationController()?.pushViewController(vc, animated: true)
-    }
-
-    func tableView(_ tableView: UITableView, canEditRowAt indexPath: IndexPath) -> Bool {
-        return true
-    }
-
-    func tableView(_ tableView: UITableView, editActionsForRowAt indexPath: IndexPath) -> [UITableViewRowAction]? {
-        return [deleteAction]
-    }
 }

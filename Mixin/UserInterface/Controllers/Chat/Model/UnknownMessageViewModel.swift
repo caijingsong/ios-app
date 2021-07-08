@@ -1,35 +1,23 @@
 import UIKit
+import MixinServices
 
 class UnknownMessageViewModel: TextMessageViewModel {
     
-    override class var textColor: UIColor {
-        return .white
+    override var rawContent: String {
+        Localized.CHAT_CELL_TITLE_UNKNOWN_CATEGORY
+            + R.string.localizable.chat_sentence_learn_more()
     }
     
-    override class var bubbleImageProvider: BubbleImageProvider.Type {
-        return UnknownBubbleImageProvider.self
-    }
-    
-    override init(message: MessageItem, style: Style, fits layoutWidth: CGFloat) {
-        message.content = Localized.CHAT_CELL_TITLE_UNKNOWN_CATEGORY
-        super.init(message: message, style: style, fits: layoutWidth)
+    override init(message: MessageItem) {
+        super.init(message: message)
         statusImage = nil
     }
     
-}
-
-extension UnknownMessageViewModel {
-    
-    class UnknownBubbleImageProvider: BubbleImageProvider {
-        
-        override class var left: UIImage {
-            return #imageLiteral(resourceName: "ic_chat_bubble_unknown_left")
-        }
-        
-        override class var leftTail: UIImage {
-            return #imageLiteral(resourceName: "ic_chat_bubble_unknown_left_tail")
-        }
-        
+    override func linkRanges(from string: String) -> [Link.Range] {
+        let location = (Localized.CHAT_CELL_TITLE_UNKNOWN_CATEGORY as NSString).length
+        let length = (R.string.localizable.chat_sentence_learn_more() as NSString).length
+        let range = NSRange(location: location, length: length)
+        return [Link.Range(range: range, url: .unknownCategory)]
     }
     
 }

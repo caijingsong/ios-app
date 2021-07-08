@@ -1,26 +1,4 @@
 import UIKit
-import SwiftMessages
-
-protocol CoreTextLabelDelegate: class {
-    func coreTextLabel(_ label: CoreTextLabel, didSelectURL url: URL)
-    func coreTextLabel(_ label: CoreTextLabel, didLongPressOnURL url: URL)
-}
-
-extension CoreTextLabelDelegate {
-    func coreTextLabel(_ label: CoreTextLabel, didSelectURL url: URL) { }
-    func coreTextLabel(_ label: CoreTextLabel, didLongPressOnURL url: URL) {
-        let alert = UIAlertController(title: url.absoluteString, message: nil, preferredStyle: .actionSheet)
-        alert.addAction(UIAlertAction(title: Localized.CHAT_MESSAGE_OPEN_URL, style: .default, handler: { [weak self] (_) in
-            self?.coreTextLabel(label, didSelectURL: url)
-        }))
-        alert.addAction(UIAlertAction(title: Localized.CHAT_MESSAGE_MENU_COPY, style: .default, handler: { (_) in
-            UIPasteboard.general.string = url.absoluteString
-            SwiftMessages.showToast(message: Localized.TOAST_COPIED, backgroundColor: .hintGreen)
-        }))
-        alert.addAction(UIAlertAction(title: Localized.DIALOG_BUTTON_CANCEL, style: .cancel, handler: nil))
-        UIApplication.currentActivity()?.present(alert, animated: true, completion: nil)
-    }
-}
 
 class CoreTextLabel: UIView {
     
@@ -105,7 +83,6 @@ class CoreTextLabel: UIView {
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         super.touchesEnded(touches, with: event)
         NSObject.cancelPreviousPerformRequests(withTarget: self)
-        stopRespondingTouches = false
         guard let touch = touches.first, let content = content else {
             return
         }
@@ -114,12 +91,16 @@ class CoreTextLabel: UIView {
                 let point = touch.location(in: self)
                 if bounds.contains(point), let link = content.links.first(where: { $0.hitFrame.applying(coreTextTransform).contains(point) }) {
                     delegate?.coreTextLabel(self, didSelectURL: link.url)
+                    stopRespondingTouches = true
                 }
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: {
                 self.selectedLink = nil
                 self.setNeedsDisplay()
             })
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                self.stopRespondingTouches = false
+            }
         }
     }
     

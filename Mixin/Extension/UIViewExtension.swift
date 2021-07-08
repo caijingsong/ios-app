@@ -1,30 +1,11 @@
 import UIKit
 
 extension UIView {
-
+    
     var isVisibleInScreen: Bool {
         return self.window == UIApplication.currentActivity()?.view.window
     }
-
-    func takeScreenshot(afterScreenUpdates: Bool = false) -> UIImage? {
-        let rendererFormat = UIGraphicsImageRendererFormat.default()
-        rendererFormat.opaque = isOpaque
-        let renderer = UIGraphicsImageRenderer(size: bounds.size, format: rendererFormat)
-
-        let snapshotImage = renderer.image { _ in
-            drawHierarchy(in: bounds, afterScreenUpdates: afterScreenUpdates)
-        }
-        return snapshotImage
-    }
-
-    func roundCorners(cornerRadius: CGFloat, byRoundingCorners: UIRectCorner = [.topLeft, .topRight]) {
-        let maskPath = UIBezierPath(roundedRect: self.bounds, byRoundingCorners: byRoundingCorners, cornerRadii: CGSize(width: cornerRadius, height: cornerRadius))
-        let maskLayer = CAShapeLayer()
-        maskLayer.frame = self.bounds
-        maskLayer.path = maskPath.cgPath
-        self.layer.mask = maskLayer
-    }
-
+    
     func animationSwapImage(newImage: UIImage) {
         UIView.animate(withDuration: 0.15, animations: {
             self.transform = CGAffineTransform(scaleX: 0.9, y: 0.9)
@@ -50,5 +31,16 @@ extension UIView.AnimationCurve {
 extension UILayoutPriority {
     
     static let almostRequired = UILayoutPriority(999)
+    static let almostInexist = UILayoutPriority(1)
+    
+}
 
+extension UIVisualEffect {
+    
+    static let extraLightBlur = UIBlurEffect(style: .extraLight)
+    static let lightBlur = UIBlurEffect(style: .light)
+    static let darkBlur = UIBlurEffect(style: .dark)
+    static let regularBlur = UIBlurEffect(style: .regular)
+    static let prominentBlur = UIBlurEffect(style: .prominent)
+    
 }

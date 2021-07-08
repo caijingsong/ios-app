@@ -1,11 +1,15 @@
 import UIKit
+import MixinServices
 
 class FavoriteStickersViewController: StickersViewController {
     
     init(index: Int) {
         super.init(nibName: nil, bundle: nil)
         self.index = index
-        NotificationCenter.default.addObserver(self, selector: #selector(favoriteStickerDidChange(_:)), name: .FavoriteStickersDidChange, object: nil)
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(favoriteStickerDidChange(_:)),
+                                               name: StickerDAO.favoriteStickersDidChangeNotification,
+                                               object: nil)
     }
     
     required init?(coder aDecoder: NSCoder) {
@@ -31,11 +35,12 @@ class FavoriteStickersViewController: StickersViewController {
     }
     
     override func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-        let cell = collectionView.dequeueReusableCell(withReuseIdentifier: cellReuseId, for: indexPath) as! AnimatedImageCollectionViewCell
+        let cell = collectionView.dequeueReusableCell(withReuseIdentifier: cellReuseId, for: indexPath) as! StickerPreviewCell
         if indexPath.row == 0 {
-            cell.imageView.image = #imageLiteral(resourceName: "ic_sticker_add")
-        } else if let url = URL(string: stickers[indexPath.row - 1].assetUrl)  {
-            cell.imageView.sd_setImage(with: url, completed: nil)
+            cell.stickerView.load(image: R.image.ic_sticker_add(), contentMode: .center)
+        } else {
+            let sticker = stickers[indexPath.row - 1]
+            cell.stickerView.load(sticker: sticker)
         }
         return cell
     }

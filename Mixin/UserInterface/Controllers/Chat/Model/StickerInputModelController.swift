@@ -1,4 +1,5 @@
 import UIKit
+import MixinServices
 
 class StickerInputModelController: NSObject {
     
@@ -11,7 +12,7 @@ class StickerInputModelController: NSObject {
     let giphyViewController = GiphyViewController(index: 2)
     let numberOfFixedControllers = 3
     
-    private var officialStickers = [[Sticker]]()
+    private var officialStickers = [[StickerItem]]()
     
     private var reusableStickerViewControllers = Set<StickersViewController>()
     

@@ -3,20 +3,22 @@ import MobileCoreServices
 import RSKImageCropper
 import Photos
 
-protocol ImagePickerControllerDelegate {
+protocol ImagePickerControllerDelegate: AnyObject {
     func imagePickerController(_ controller: ImagePickerController, didPickImage image: UIImage)
 }
 
 class ImagePickerController: NSObject {
     
-    weak var viewController: (UIViewController & ImagePickerControllerDelegate)?
+    weak var viewController: UIViewController!
+    weak var delegate: ImagePickerControllerDelegate!
     var initialCameraPosition = UIImagePickerController.CameraDevice.rear
     var cropImageAfterPicked = false
     
-    init(initialCameraPosition: UIImagePickerController.CameraDevice, cropImageAfterPicked: Bool, parent: (UIViewController & ImagePickerControllerDelegate)) {
+    init(initialCameraPosition: UIImagePickerController.CameraDevice, cropImageAfterPicked: Bool, parent: UIViewController, delegate: ImagePickerControllerDelegate) {
         self.initialCameraPosition = initialCameraPosition
         self.cropImageAfterPicked = cropImageAfterPicked
         self.viewController = parent
+        self.delegate = delegate
     }
     
     private lazy var selectSourceController: UIAlertController = {
@@ -38,6 +40,7 @@ class ImagePickerController: NSObject {
         let picker = UIImagePickerController()
         picker.mediaTypes = [kUTTypeImage as String]
         picker.delegate = self
+        picker.modalPresentationStyle = .overFullScreen
         return picker
     }()
 
@@ -45,6 +48,7 @@ class ImagePickerController: NSObject {
         let picker = UIImagePickerController()
         picker.mediaTypes = [kUTTypeImage as String]
         picker.delegate = self
+        picker.modalPresentationStyle = .overFullScreen
         return picker
     }()
 
@@ -100,13 +104,13 @@ extension ImagePickerController: UIImagePickerControllerDelegate {
                 })
             } else {
                 picker.dismiss(animated: true, completion: nil)
-                weakSelf.viewController?.imagePickerController(weakSelf, didPickImage: image)
+                weakSelf.delegate?.imagePickerController(weakSelf, didPickImage: image)
             }
         }
         
         if let image = info[.originalImage] as? UIImage {
             completion(image)
-        } else if let imageURL = info[.referenceURL] as? URL, let asset = PHAsset.fetchAssets(withALAssetURLs: [imageURL], options: nil).firstObject {
+        } else if let asset = info[.phAsset] as? PHAsset {
             PHImageManager.default().requestImage(for: asset, targetSize: PHImageManagerMaximumSize, contentMode: .default, options: nil, resultHandler: { (image, _) in
                 if let image = image {
                     completion(image)
@@ -120,7 +124,7 @@ extension ImagePickerController: UIImagePickerControllerDelegate {
 extension ImagePickerController: RSKImageCropViewControllerDelegate {
     func imageCropViewController(_ controller: RSKImageCropViewController, didCropImage croppedImage: UIImage, usingCropRect cropRect: CGRect, rotationAngle: CGFloat) {
         controller.dismiss(animated: true, completion: nil)
-        viewController?.imagePickerController(self, didPickImage: croppedImage)
+        delegate?.imagePickerController(self, didPickImage: croppedImage)
     }
 
  

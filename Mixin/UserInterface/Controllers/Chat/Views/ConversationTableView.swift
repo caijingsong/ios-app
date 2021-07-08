@@ -1,64 +1,34 @@
 import UIKit
-
-fileprivate extension Selector {
-    static let reply = #selector(ConversationTableView.replyAction(_:))
-    static let delete = #selector(ConversationTableView.deleteAction(_:))
-    static let forward = #selector(ConversationTableView.forwardAction(_:))
-    static let copy = #selector(ConversationTableView.copyAction(_:))
-    static let addToStickers = #selector(ConversationTableView.addToStickersAction(_:))
-}
-
-extension MessageItem {
-    
-    var allowedActions: [Selector] {
-        var actions = [Selector]()
-        if status == MessageStatus.FAILED.rawValue {
-            actions = [.delete]
-        } else if category.hasSuffix("_TEXT") {
-            actions = [.reply, .forward, .copy, .delete]
-        } else if category.hasSuffix("_STICKER") {
-            actions = [.addToStickers, .reply, .forward, .delete]
-        } else if category.hasSuffix("_CONTACT") {
-            actions = [.reply, .forward, .delete]
-        } else if category.hasSuffix("_IMAGE") {
-            if mediaStatus == MediaStatus.DONE.rawValue {
-                actions = [.addToStickers, .reply, .forward, .delete]
-            } else {
-                actions = [.reply, .delete]
-            }
-        } else if category.hasSuffix("_DATA") || category.hasSuffix("_VIDEO") || category.hasSuffix("_AUDIO") {
-            if mediaStatus == MediaStatus.DONE.rawValue {
-                actions = [.reply, .forward, .delete]
-            } else {
-                actions = [.reply, .delete]
-            }
-        } else if category == MessageCategory.SYSTEM_ACCOUNT_SNAPSHOT.rawValue {
-            actions = [.delete]
-        } else if category == MessageCategory.APP_CARD.rawValue {
-            actions = [.reply, .delete]
-        } else {
-            actions = []
-        }
-        return actions
-    }
-    
-}
-
-protocol ConversationTableViewActionDelegate: class {
-    func conversationTableViewCanBecomeFirstResponder(_ tableView: ConversationTableView) -> Bool
-    func conversationTableViewLongPressWillBegan(_ tableView: ConversationTableView)
-    func conversationTableView(_ tableView: ConversationTableView, hasActionsforIndexPath indexPath: IndexPath) -> Bool
-    func conversationTableView(_ tableView: ConversationTableView, canPerformAction action: Selector, forIndexPath indexPath: IndexPath) -> Bool
-    func conversationTableView(_ tableView: ConversationTableView, didSelectAction action: ConversationTableView.Action, forIndexPath indexPath: IndexPath)
-}
+import MixinServices
 
 class ConversationTableView: UITableView {
-
-    weak var viewController: ConversationViewController?
-    weak var actionDelegate: ConversationTableViewActionDelegate?
     
-    override var canBecomeFirstResponder: Bool {
-        return true
+    override var tableFooterView: UIView? {
+        get {
+            return super.tableFooterView
+        }
+        set {
+            let adjustContentOffset: Bool
+            if super.tableFooterView == nil && newValue != nil {
+                let reachesBottomBeforeAppending = abs(contentOffset.y - bottomContentOffset.y) < 1
+                super.tableFooterView = newValue
+                layoutIfNeeded()
+                let contentSizeBeyondsBottom = contentSize.height > frame.height - contentInset.vertical
+                adjustContentOffset = reachesBottomBeforeAppending && contentSizeBeyondsBottom
+            } else if let footerView = super.tableFooterView, newValue == nil {
+                adjustContentOffset = (contentSize.height - footerView.frame.height - contentOffset.y) < frame.height
+                super.tableFooterView = nil
+            } else {
+                adjustContentOffset = false
+            }
+            if adjustContentOffset {
+                contentOffset = bottomContentOffset
+            }
+        }
+    }
+    
+    var bottomDistance: CGFloat {
+        return contentSize.height - contentOffset.y
     }
     
     var indicesForVisibleSectionHeaders: [Int] {
@@ -72,105 +42,37 @@ class ConversationTableView: UITableView {
     private let animationDuration: TimeInterval = 0.3
     
     private var headerViewsAnimator: UIViewPropertyAnimator?
-    private var longPressRecognizer: UILongPressGestureRecognizer!
     private var bottomContentOffset: CGPoint {
-        let y = contentSize.height + contentInset.bottom - frame.height
-        return CGPoint(x: contentOffset.x, y: max(-contentInset.top, y))
+        let y = contentSize.height
+            + adjustedContentInset.bottom
+            - AppDelegate.current.mainWindow.bounds.height
+        return CGPoint(x: 0, y: max(-contentInset.top, y))
     }
     
     required init?(coder aDecoder: NSCoder) {
         super.init(coder: aDecoder)
-        prepare()
+        registerCells()
     }
     
     override init(frame: CGRect, style: UITableView.Style) {
         super.init(frame: frame, style: style)
-        prepare()
-    }
-    
-    deinit {
-        NotificationCenter.default.removeObserver(self)
-    }
-
-    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
-        guard let indexPath = indexPathForSelectedRow, let actionDelegate = actionDelegate else {
-            return false
-        }
-        return actionDelegate.conversationTableView(self, canPerformAction: action, forIndexPath: indexPath)
-    }
-    
-    @objc func replyAction(_ sender: Any) {
-        invokeDelegate(action: .reply)
-    }
-    
-    @objc func forwardAction(_ sender: Any) {
-        invokeDelegate(action: .forward)
-    }
-    
-    @objc func copyAction(_ sender: Any) {
-        invokeDelegate(action: .copy)
-    }
-    
-    @objc func deleteAction(_ sender: Any) {
-        invokeDelegate(action: .delete)
-    }
-
-    @objc func addToStickersAction(_ sender: Any) {
-        invokeDelegate(action: .add)
-    }
-    
-    @objc func longPressAction(_ recognizer: UIGestureRecognizer) {
-        guard recognizer.state == .began, let actionDelegate = actionDelegate else {
-            return
-        }
-        let location = recognizer.location(in: self)
-        if let cell = messageCellForRow(at: location), let indexPath = indexPathForRow(at: location), actionDelegate.conversationTableView(self, hasActionsforIndexPath: indexPath)  {
-            actionDelegate.conversationTableViewLongPressWillBegan(self)
-            selectRow(at: indexPath, animated: true, scrollPosition: .none)
-            if actionDelegate.conversationTableViewCanBecomeFirstResponder(self) {
-                becomeFirstResponder()
-            }
-            DispatchQueue.main.async {
-                UIMenuController.shared.setTargetRect(cell.contentFrame, in: cell)
-                UIMenuController.shared.setMenuVisible(true, animated: true)
-            }
-        }
-    }
-    
-    @objc func menuControllerWillHideMenu(_ notification: Notification) {
-        guard let indexPath = indexPathForSelectedRow else {
-            return
-        }
-        deselectRow(at: indexPath, animated: true)
+        registerCells()
     }
     
     func dequeueReusableCell(withMessage message: MessageItem, for indexPath: IndexPath) -> UITableViewCell {
         if message.status == MessageStatus.FAILED.rawValue {
             return dequeueReusableCell(withReuseId: .text, for: indexPath)
-        } else if message.quoteMessageId != nil && message.quoteContent != nil {
-            return dequeueReusableCell(withReuseId: .quoteText, for: indexPath)
+        } else if message.status == MessageStatus.UNKNOWN.rawValue {
+            return dequeueReusableCell(withReuseId: .unknown, for: indexPath)
         } else {
             return dequeueReusableCell(withReuseId: ReuseId(category: message.category), for: indexPath)
         }
     }
     
     func dequeueReusableCell(withReuseId reuseId: ReuseId, for indexPath: IndexPath) -> UITableViewCell {
-        let cell = dequeueReusableCell(withIdentifier: reuseId.rawValue, for: indexPath)
-        if let cell = cell as? DetailInfoMessageCell, cell.delegate == nil {
-            cell.delegate = viewController
-        }
-        if let cell = cell as? AttachmentLoadingMessageCell, cell.attachmentLoadingDelegate == nil {
-            cell.attachmentLoadingDelegate = viewController
-        }
-        if let cell = cell as? TextMessageCell, cell.contentLabel.delegate == nil {
-            cell.contentLabel.delegate = viewController
-        }
-        if let cell = cell as? AppButtonGroupMessageCell, cell.appButtonDelegate == nil {
-            cell.appButtonDelegate = viewController
-        }
-        return cell
+        dequeueReusableCell(withIdentifier: reuseId.rawValue, for: indexPath)
     }
-
+    
     func messageCellForRow(at point: CGPoint) -> MessageCell? {
         guard let indexPath = indexPathForRow(at: point), let cell = cellForRow(at: indexPath) as? MessageCell else {
             return nil
@@ -190,7 +92,8 @@ class ConversationTableView: UITableView {
     func setContentOffsetYSafely(_ y: CGFloat) {
         let bottomContentOffsetY = bottomContentOffset.y
         if bottomContentOffsetY > -contentInset.top {
-            contentOffset.y = min(bottomContentOffsetY, max(-contentInset.top, y))
+            let y = min(bottomContentOffsetY, max(-contentInset.top, y))
+            self.contentOffset = CGPoint(x: 0, y: y)
         }
     }
     
@@ -228,7 +131,7 @@ class ConversationTableView: UITableView {
             if let firstVisibleSection = firstVisibleSection, let firstVisibleHeaderView = firstVisibleHeaderView {
                 let fixedRect = rectForHeader(inSection: firstVisibleSection)
                 let actualRect = firstVisibleHeaderView.frame
-                if abs(fixedRect.origin.y - actualRect.origin.y) > 1, let index = sections.index(of: firstVisibleSection) {
+                if abs(fixedRect.origin.y - actualRect.origin.y) > 1, let index = sections.firstIndex(of: firstVisibleSection) {
                     // header is floating
                     sections.remove(at: index)
                     firstVisibleHeaderView.alpha = 0
@@ -240,48 +143,47 @@ class ConversationTableView: UITableView {
         }
     }
     
-    private func invokeDelegate(action: Action) {
-        guard let indexPath = indexPathForSelectedRow else {
-            return
-        }
-        actionDelegate?.conversationTableView(self, didSelectAction: action, forIndexPath: indexPath)
-    }
-    
-    private func prepare() {
+    private func registerCells() {
         register(UINib(nibName: "ConversationDateHeaderView", bundle: .main),
                  forHeaderFooterViewReuseIdentifier: ReuseId.header.rawValue)
+        register(SystemMessageCell.self, forCellReuseIdentifier: ReuseId.system.rawValue)
         register(TextMessageCell.self, forCellReuseIdentifier: ReuseId.text.rawValue)
         register(PhotoMessageCell.self, forCellReuseIdentifier: ReuseId.photo.rawValue)
         register(StickerMessageCell.self, forCellReuseIdentifier: ReuseId.sticker.rawValue)
         register(UnknownMessageCell.self, forCellReuseIdentifier: ReuseId.unknown.rawValue)
         register(AppButtonGroupMessageCell.self, forCellReuseIdentifier: ReuseId.appButtonGroup.rawValue)
         register(VideoMessageCell.self, forCellReuseIdentifier: ReuseId.video.rawValue)
-        register(QuoteTextMessageCell.self, forCellReuseIdentifier: ReuseId.quoteText.rawValue)
-        longPressRecognizer = UILongPressGestureRecognizer(target: self, action: #selector(longPressAction(_:)))
-        longPressRecognizer.delegate = TextMessageLabel.gestureRecognizerBypassingDelegateObject
-        addGestureRecognizer(longPressRecognizer)
-        UIMenuController.shared.menuItems = [
-            UIMenuItem(title: Localized.CHAT_MESSAGE_ADD, action: #selector(addToStickersAction(_:))),
-            UIMenuItem(title: Localized.CHAT_MESSAGE_MENU_REPLY, action: #selector(replyAction(_:))),
-            UIMenuItem(title: Localized.CHAT_MESSAGE_MENU_FORWARD, action: #selector(forwardAction(_:))),
-            UIMenuItem(title: Localized.CHAT_MESSAGE_MENU_COPY, action: #selector(copyAction(_:))),
-            UIMenuItem(title: Localized.MENU_DELETE, action: #selector(deleteAction(_:)))]
-        NotificationCenter.default.addObserver(self, selector: #selector(menuControllerWillHideMenu(_:)), name: UIMenuController.willHideMenuNotification, object: nil)
+        register(IconPrefixedTextMessageCell.self, forCellReuseIdentifier: ReuseId.iconPrefixedText.rawValue)
+        register(LiveMessageCell.self, forCellReuseIdentifier: ReuseId.live.rawValue)
+        register(PostMessageCell.self, forCellReuseIdentifier: ReuseId.post.rawValue)
+        register(TransferMessageCell.self, forCellReuseIdentifier: ReuseId.transfer.rawValue)
+        register(AppCardMessageCell.self, forCellReuseIdentifier: ReuseId.appCard.rawValue)
+        register(ContactMessageCell.self, forCellReuseIdentifier: ReuseId.contact.rawValue)
+        register(DataMessageCell.self, forCellReuseIdentifier: ReuseId.data.rawValue)
+        register(AudioMessageCell.self, forCellReuseIdentifier: ReuseId.audio.rawValue)
+        register(LocationMessageCell.self, forCellReuseIdentifier: ReuseId.location.rawValue)
+        register(TranscriptMessageCell.self, forCellReuseIdentifier: ReuseId.transcript.rawValue)
     }
     
 }
 
 extension ConversationTableView {
     
-    enum Action {
-        case reply
-        case forward
-        case copy
-        case delete
-        case add
-    }
-    
     enum ReuseId: String {
+        
+        static let systemMessageRepresentableMessageCategories: Set<String> = {
+            let categories: [MessageCategory] = [
+                .EXT_ENCRYPTION,
+                .SYSTEM_CONVERSATION,
+                .KRAKEN_PUBLISH,
+                .KRAKEN_INVITE,
+                .KRAKEN_CANCEL,
+                .KRAKEN_DECLINE,
+                .KRAKEN_END
+            ]
+            return Set(categories.map(\.rawValue))
+        }()
+        
         case text = "TextMessageCell"
         case photo = "PhotoMessageCell"
         case sticker = "StickerMessageCell"
@@ -295,9 +197,13 @@ extension ConversationTableView {
         case video = "VideoMessageCell"
         case appCard = "AppCardMessageCell"
         case audio = "AudioMessageCell"
-        case quoteText = "QuoteTextMessageCell"
+        case live = "LiveMessageCell"
+        case post = "PostMessageCell"
+        case location = "LocationMessageCell"
+        case iconPrefixedText = "IconPrefixedTextMessageCell"
+        case transcript = "TranscriptMessageCell"
         case header = "DateHeader"
-
+        
         init(category: String) {
             if category.hasSuffix("_TEXT") {
                 self = .text
@@ -313,16 +219,26 @@ extension ConversationTableView {
                 self = .video
             } else if category.hasSuffix("_AUDIO") {
                 self = .audio
+            } else if category.hasSuffix("_LIVE") {
+                self = .live
+            } else if category.hasSuffix("_POST") {
+                self = .post
+            } else if category.hasSuffix("_LOCATION") {
+                self = .location
+            } else if category.hasPrefix("WEBRTC_") || category == MessageCategory.MESSAGE_RECALL.rawValue {
+                self = .iconPrefixedText
             } else if category == MessageCategory.SYSTEM_ACCOUNT_SNAPSHOT.rawValue {
                 self = .transfer
             } else if category == MessageCategory.EXT_UNREAD.rawValue {
                 self = .unreadHint
-            } else if category == MessageCategory.EXT_ENCRYPTION.rawValue || category == MessageCategory.SYSTEM_CONVERSATION.rawValue {
+            } else if Self.systemMessageRepresentableMessageCategories.contains(category) {
                 self = .system
             } else if category == MessageCategory.APP_BUTTON_GROUP.rawValue {
                 self = .appButtonGroup
             } else if category == MessageCategory.APP_CARD.rawValue {
                 self = .appCard
+            } else if category == MessageCategory.SIGNAL_TRANSCRIPT.rawValue {
+                self = .transcript
             } else {
                 self = .unknown
             }

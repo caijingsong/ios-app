@@ -1,5 +1,4 @@
 import UIKit
-import SwiftMessages
 
 class RecognizeWindow: BottomSheetView {
 
@@ -12,13 +11,13 @@ class RecognizeWindow: BottomSheetView {
 
     func presentWindow(text: String) {
         contentTextView.text = text
-        super.presentPopupControllerAnimated()
+        presentPopupControllerAnimated()
     }
 
     @IBAction func copyAction(_ sender: Any) {
         UIPasteboard.general.string = contentTextView.text
         dismissPopupControllerAnimated()
-        NotificationCenter.default.afterPostOnMain(name: .ToastMessageDidAppear, object: Localized.TOAST_COPIED)
+        showAutoHiddenHud(style: .notification, text: Localized.TOAST_COPIED)
     }
 
     @IBAction func dismissAction(_ sender: Any) {
@@ -31,11 +30,18 @@ class RecognizeWindow: BottomSheetView {
 }
 
 extension RecognizeWindow: UITextViewDelegate {
-
+    
     func textView(_ textView: UITextView, shouldInteractWith URL: URL, in characterRange: NSRange, interaction: UITextItemInteraction) -> Bool {
+        guard let container = UIApplication.homeContainerViewController else {
+            return true
+        }
         dismissPopupControllerAnimated()
-        WebWindow.instance(conversationId: "").presentPopupControllerAnimated(url: URL)
+        var parent = container.topMostChild
+        if let visibleViewController = (parent as? UINavigationController)?.visibleViewController {
+            parent = visibleViewController
+        }
+        MixinWebViewController.presentInstance(with: .init(conversationId: "", initialUrl: URL), asChildOf: parent)
         return false
     }
-
+    
 }

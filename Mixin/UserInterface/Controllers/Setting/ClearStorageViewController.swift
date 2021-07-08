@@ -1,12 +1,16 @@
 import UIKit
+import MixinServices
 
 class ClearStorageViewController: UITableViewController {
-
-    @IBOutlet weak var photoCell: UITableViewCell!
-    @IBOutlet weak var videoCell: UITableViewCell!
-    @IBOutlet weak var audioCell: UITableViewCell!
-    @IBOutlet weak var fileCell: UITableViewCell!
     
+    @IBOutlet weak var photoCell: ModernSelectedBackgroundCell!
+    @IBOutlet weak var videoCell: ModernSelectedBackgroundCell!
+    @IBOutlet weak var audioCell: ModernSelectedBackgroundCell!
+    @IBOutlet weak var fileCell: ModernSelectedBackgroundCell!
+    @IBOutlet weak var photoCheckmark: CheckmarkView!
+    @IBOutlet weak var videoCheckmark: CheckmarkView!
+    @IBOutlet weak var audioCheckmark: CheckmarkView!
+    @IBOutlet weak var fileCheckmark: CheckmarkView!
     @IBOutlet weak var photosLabel: UILabel!
     @IBOutlet weak var videosLabel: UILabel!
     @IBOutlet weak var audiosLabel: UILabel!
@@ -23,7 +27,6 @@ class ClearStorageViewController: UITableViewController {
         super.viewDidLoad()
 
         tableView.tableFooterView = UIView()
-
         let conversationId = conversation.conversationId
         DispatchQueue.global().async { [weak self] in
             let categoryStorages = ConversationDAO.shared.getCategoryStorages(conversationId: conversationId)
@@ -51,10 +54,9 @@ class ClearStorageViewController: UITableViewController {
     }
 
     class func instance(conversation: ConversationStorageUsage) -> UIViewController {
-        let vc = Storyboard.setting.instantiateViewController(withIdentifier: "clear_storage") as! ClearStorageViewController
+        let vc = R.storyboard.setting.clear_storage()!
         vc.conversation = conversation
         let container = ContainerViewController.instance(viewController: vc, title: conversation.getConversationName())
-        container.automaticallyAdjustsScrollViewInsets = false
         return container
     }
 
@@ -102,38 +104,41 @@ extension ClearStorageViewController: ContainerViewControllerDelegate {
     private func clearAction() {
         let clearPhotos = isClearPhotos && categorys["_IMAGE"]?.messageCount ?? 0 > 0
         let clearVideos = isClearVideos && categorys["_VIDEO"]?.messageCount ?? 0 > 0
-        let clearAudios = isClearPhotos && categorys["_AUDIO"]?.messageCount ?? 0 > 0
-        let clearFiles = isClearPhotos && categorys["_DATA"]?.messageCount ?? 0 > 0
+        let clearAudios = isClearAudios && categorys["_AUDIO"]?.messageCount ?? 0 > 0
+        let clearFiles = isClearFiles && categorys["_DATA"]?.messageCount ?? 0 > 0
         container?.rightButton.isBusy = true
+
+        let conversationId = conversation.conversationId
         DispatchQueue.global().async { [weak self] in
+            var categories = [MessageCategory]()
             if clearPhotos {
-                self?.clean(chatDirectory: .photos)
+                categories += AttachmentContainer.Category.photos.messageCategory
             }
             if clearVideos {
-                self?.clean(chatDirectory: .videos)
+                categories += AttachmentContainer.Category.videos.messageCategory
             }
             if clearAudios {
-                self?.clean(chatDirectory: .audios)
+                categories += AttachmentContainer.Category.audios.messageCategory
             }
             if clearFiles {
-                self?.clean(chatDirectory: .files)
+                categories += AttachmentContainer.Category.files.messageCategory
             }
+
+            let mediaUrls = MessageDAO.shared.getMediaUrls(conversationId: conversationId, categories: categories)
+            let job = AttachmentCleanUpJob(conversationId: conversationId, mediaUrls: mediaUrls, transcriptIds: [])
+            ConcurrentJobQueue.shared.addJob(job: job)
+            MessageDAO.shared.deleteMediaMessages(conversationId: conversationId, categories: categories)
 
             DispatchQueue.main.async {
                 guard let weakSelf = self else {
                     return
                 }
-                NotificationCenter.default.post(name: .StorageUsageDidChange, object: nil)
+                NotificationCenter.default.post(name: MixinServices.storageUsageDidChangeNotification, object: self)
                 weakSelf.navigationController?.popViewController(animated: true)
             }
         }
     }
-
-    private func clean(chatDirectory: MixinFile.ChatDirectory) {
-        MessageDAO.shared.deleteMessages(conversationId: conversation.conversationId, category: chatDirectory.messageCategorySuffix)
-        MixinFile.clean(chatDirectory: chatDirectory)
-    }
-
+    
     func textBarRightButton() -> String? {
         return Localized.ACTION_CLEAR
     }
@@ -145,16 +150,16 @@ extension ClearStorageViewController {
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         switch indexPath.row {
         case 0:
-            photoCell.accessoryType = isClearPhotos ? .checkmark : .none
+            photoCheckmark.status = isClearPhotos ? .selected : .deselected
             return photoCell
         case 1:
-            videoCell.accessoryType = isClearVideos ? .checkmark : .none
+            videoCheckmark.status = isClearVideos ? .selected : .deselected
             return videoCell
         case 2:
-            audioCell.accessoryType = isClearAudios ? .checkmark : .none
+            audioCheckmark.status = isClearAudios ? .selected : .deselected
             return audioCell
         case 3:
-            fileCell.accessoryType = isClearFiles ? .checkmark : .none
+            fileCheckmark.status = isClearFiles ? .selected : .deselected
             return fileCell
         default:
             return UITableViewCell()
@@ -177,6 +182,7 @@ extension ClearStorageViewController {
             break
         }
         tableView.reloadRows(at: [indexPath], with: .none)
+        container?.rightButton.isEnabled = isClearPhotos || isClearVideos || isClearAudios || isClearFiles
     }
 
 }

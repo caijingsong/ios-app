@@ -1,164 +1,162 @@
 import UIKit
+import MixinServices
 
 class TransactionViewController: UIViewController {
-
+    
     @IBOutlet weak var tableView: UITableView!
-
+    @IBOutlet weak var tableHeaderView: InfiniteTopView!
+    @IBOutlet weak var headerContentStackView: UIStackView!
+    @IBOutlet weak var assetIconView: AssetIconView!
+    @IBOutlet weak var amountStackView: UIStackView!
+    @IBOutlet weak var amountLabel: UILabel!
+    @IBOutlet weak var symbolLabel: InsetLabel!
+    @IBOutlet weak var fiatMoneyValueLabel: UILabel!
+    
+    private let cellReuseId = "cell"
+    
     private var asset: AssetItem!
     private var snapshot: SnapshotItem!
-
+    private var contents: [(title: String, subtitle: String?)]!
+    
+    override var canBecomeFirstResponder: Bool {
+        true
+    }
+    
     override func viewDidLoad() {
         super.viewDidLoad()
-
-        prepareTableView()
-    }
-
-    private func prepareTableView() {
-        tableView.register(UINib(nibName: "TransactionCell", bundle: nil), forCellReuseIdentifier: TransactionCell.cellIdentifier)
-        tableView.register(UINib(nibName: "TransactionHeaderCell", bundle: nil), forCellReuseIdentifier: TransactionHeaderCell.cellIdentifier)
+        symbolLabel.contentInset = UIEdgeInsets(top: 2, left: 0, bottom: 0, right: 0)
+        assetIconView.setIcon(asset: asset)
+        amountLabel.text = CurrencyFormatter.localizedString(from: snapshot.amount, format: .precision, sign: .always)
+        if snapshot.type == SnapshotType.pendingDeposit.rawValue {
+            amountLabel.textColor = .walletGray
+        } else {
+            if snapshot.amount.hasMinusPrefix {
+                amountLabel.textColor = .walletRed
+            } else {
+                amountLabel.textColor = .walletGreen
+            }
+        }
+        amountLabel.setFont(scaledFor: .dinCondensedBold(ofSize: 34), adjustForContentSize: true)
+        fiatMoneyValueLabel.text = R.string.localizable.transaction_value_now(Currency.current.symbol + getFormatValue(priceUsd: asset.priceUsd)) + "\n "
+        symbolLabel.text = snapshot.assetSymbol
+        if ScreenHeight.current >= .extraLong {
+            assetIconView.chainIconWidth = 28
+            assetIconView.chainIconOutlineWidth = 4
+            headerContentStackView.spacing = 2
+        }
+        layoutTableHeaderView()
+        makeContents()
         tableView.dataSource = self
         tableView.delegate = self
-        tableView.estimatedRowHeight = 69
-        tableView.rowHeight = UITableView.automaticDimension
-        tableView.tableFooterView = UIView()
-        tableView.reloadData()
+        updateTableViewContentInsetBottom()
+        fetchThatTimePrice()
+        fetchTransaction()
+        
+        assetIconView.isUserInteractionEnabled = true
+        assetIconView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(backToAsset(_:))))
     }
-
+    
+    @objc func backToAsset(_ recognizer: UITapGestureRecognizer) {
+        guard let viewControllers = navigationController?.viewControllers else {
+            return
+        }
+        
+        if let assetViewController = viewControllers
+            .compactMap({ $0 as? ContainerViewController })
+            .compactMap({ $0.viewController as? AssetViewController })
+            .first(where: { $0.asset.assetId == asset.assetId })?.container {
+            navigationController?.popToViewController(assetViewController, animated: true)
+        } else {
+            navigationController?.pushViewController(AssetViewController.instance(asset: asset), animated: true)
+        }
+    }
+    
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        updateTableViewContentInsetBottom()
+    }
+    
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        if traitCollection.preferredContentSizeCategory != previousTraitCollection?.preferredContentSizeCategory {
+            DispatchQueue.main.async {
+                self.layoutTableHeaderView()
+                self.tableView.tableHeaderView = self.tableHeaderView
+            }
+        }
+    }
+    
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        action == #selector(copy(_:))
+    }
+    
+    override func copy(_ sender: Any?) {
+        UIPasteboard.general.string = snapshot.amount
+    }
+    
+    @IBAction func longPressAmountAction(_ recognizer: UILongPressGestureRecognizer) {
+        guard recognizer.state == .began else {
+            return
+        }
+        becomeFirstResponder()
+        let menu = UIMenuController.shared
+        menu.setTargetRect(amountLabel.bounds, in: amountLabel)
+        menu.setMenuVisible(true, animated: true)
+        AppDelegate.current.mainWindow.addDismissMenuResponder()
+    }
+    
     class func instance(asset: AssetItem, snapshot: SnapshotItem) -> UIViewController {
-        let vc = Storyboard.wallet.instantiateViewController(withIdentifier: "transaction") as! TransactionViewController
+        let vc = R.storyboard.wallet.transaction()!
         vc.asset = asset
         vc.snapshot = snapshot
         let container = ContainerViewController.instance(viewController: vc, title: Localized.TRANSACTION_TITLE)
-        container.automaticallyAdjustsScrollViewInsets = false
         return container
     }
-
+    
 }
 
-extension TransactionViewController: UITableViewDataSource, UITableViewDelegate {
-
-    func numberOfSections(in tableView: UITableView) -> Int {
-        return 2
+extension TransactionViewController: ContainerViewControllerDelegate {
+    
+    var prefersNavigationBarSeparatorLineHidden: Bool {
+        return true
     }
+    
+}
 
+extension TransactionViewController: UITableViewDataSource {
+    
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return section == 0 ? 1 : 7
+        return contents.count
     }
-
+    
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        if indexPath.section == 0 {
-            let cell = tableView.dequeueReusableCell(withIdentifier: TransactionHeaderCell.cellIdentifier) as! TransactionHeaderCell
-            cell.render(asset: asset, snapshot: snapshot)
-            return cell
-        } else {
-            let cell = tableView.dequeueReusableCell(withIdentifier: TransactionCell.cellIdentifier) as! TransactionCell
-            switch indexPath.row {
-            case 0:
-                cell.render(title: Localized.TRANSACTION_ID, value: snapshot.snapshotId)
-            case 1:
-                switch snapshot.type {
-                case SnapshotType.deposit.rawValue:
-                    cell.render(title: Localized.TRANSACTION_TYPE, value: Localized.TRANSACTION_TYPE_DEPOSIT)
-                case SnapshotType.transfer.rawValue:
-                    cell.render(title: Localized.TRANSACTION_TYPE, value: Localized.TRANSACTION_TYPE_TRANSFER)
-                case SnapshotType.withdrawal.rawValue:
-                    cell.render(title: Localized.TRANSACTION_TYPE, value: Localized.TRANSACTION_TYPE_WITHDRAWAL)
-                case SnapshotType.fee.rawValue:
-                    cell.render(title: Localized.TRANSACTION_TYPE, value: Localized.TRANSACTION_TYPE_FEE)
-                case SnapshotType.rebate.rawValue:
-                    cell.render(title: Localized.TRANSACTION_TYPE, value: Localized.TRANSACTION_TYPE_REBATE)
-                default:
-                    break
-                }
-            case 2:
-                cell.render(title: Localized.TRANSACTION_ASSET, value: asset.name)
-            case 3:
-                switch snapshot.type {
-                case SnapshotType.deposit.rawValue:
-                    if asset.isAccount {
-                        cell.render(title: Localized.WALLET_ACCOUNT_NAME, value: snapshot.sender)
-                    } else {
-                        cell.render(title: Localized.TRANSACTION_SENDER, value: snapshot.sender)
-                    }
-                case SnapshotType.transfer.rawValue:
-                    if snapshot.amount.doubleValue > 0 {
-                        cell.render(title: Localized.WALLET_SNAPSHOT_FROM(fullName: ""), value: snapshot.opponentUserFullName)
-                    } else {
-                        cell.render(title: Localized.WALLET_SNAPSHOT_FROM(fullName: ""), value: AccountAPI.shared.account?.full_name)
-                    }
-                case SnapshotType.withdrawal.rawValue, SnapshotType.fee.rawValue, SnapshotType.rebate.rawValue:
-                    cell.render(title: Localized.TRANSACTION_TRANSACTION_HASH, value: snapshot.transactionHash)
-                default:
-                    break
-                }
-            case 4:
-                switch snapshot.type {
-                case SnapshotType.deposit.rawValue:
-                    cell.render(title: Localized.TRANSACTION_TRANSACTION_HASH, value: snapshot.transactionHash)
-                case SnapshotType.transfer.rawValue:
-                    if snapshot.amount.doubleValue > 0 {
-                        cell.render(title: Localized.WALLET_SNAPSHOT_TO(fullName: ""), value: AccountAPI.shared.account?.full_name)
-                    } else {
-                        cell.render(title: Localized.WALLET_SNAPSHOT_TO(fullName: ""), value: snapshot.opponentUserFullName)
-                    }
-                case SnapshotType.withdrawal.rawValue, SnapshotType.fee.rawValue, SnapshotType.rebate.rawValue:
-                    if asset.isAccount {
-                        cell.render(title: Localized.WALLET_ACCOUNT_NAME, value: snapshot.receiver)
-                    } else {
-                        cell.render(title: Localized.TRANSACTION_RECEIVER, value: snapshot.receiver)
-                    }
-                default:
-                    break
-                }
-            case 5:
-                if asset.isAccount && (snapshot.type == SnapshotType.deposit.rawValue || snapshot.type == SnapshotType.withdrawal.rawValue || snapshot.type == SnapshotType.fee.rawValue || snapshot.type == SnapshotType.rebate.rawValue) {
-                    cell.render(title: Localized.WALLET_ACCOUNT_MEMO, value: snapshot.memo)
-                } else {
-                    cell.render(title: Localized.TRANSACTION_MEMO, value: snapshot.memo)
-                }
-            case 6:
-                cell.render(title: Localized.TRANSACTION_DATE, value: DateFormatter.dateFull.string(from: snapshot.createdAt.toUTCDate()))
-            default:
-                break
-            }
-            return cell
-        }
+        let cell = tableView.dequeueReusableCell(withIdentifier: cellReuseId) as! TransactionCell
+        cell.titleLabel.text = contents[indexPath.row].title
+        cell.subtitleLabel.text = contents[indexPath.row].subtitle
+        return cell
     }
+    
+}
 
+extension TransactionViewController: UITableViewDelegate {
+    
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-
-        guard indexPath.section == 1, snapshot.type == SnapshotType.transfer.rawValue else {
+        guard snapshot.type == SnapshotType.transfer.rawValue, indexPath.row == 3 else {
             return
         }
-
-        var transferUserId: String?
-        if indexPath.row == 3  && snapshot.amount.doubleValue > 0 {
-            transferUserId = snapshot.opponentId
-        } else if indexPath.row == 4 && snapshot.amount.doubleValue < 0 {
-            transferUserId = snapshot.opponentId
-        }
-
-        guard let userId = transferUserId, !userId.isEmpty else {
+        guard let userId = snapshot.opponentId, !userId.isEmpty else {
             return
         }
-
         DispatchQueue.global().async {
-            guard let user = UserDAO.shared.getUser(userId: userId) else {
+            guard let user = UserDAO.shared.getUser(userId: userId), user.isCreatedByMessenger else {
                 return
             }
-            DispatchQueue.main.async {
-                UserWindow.instance().updateUser(user: user).presentView()
+            DispatchQueue.main.async { [weak self] in
+                let vc = UserProfileViewController(user: user)
+                self?.present(vc, animated: true, completion: nil)
             }
         }
-    }
-
-    func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
-        return section == 0 ? CGFloat.leastNormalMagnitude : 10
-    }
-
-    func tableView(_ tableView: UITableView, heightForFooterInSection section: Int) -> CGFloat {
-        return section == 0 ? 10 : 30
     }
     
     func tableView(_ tableView: UITableView, shouldShowMenuForRowAt indexPath: IndexPath) -> Bool {
@@ -175,37 +173,174 @@ extension TransactionViewController: UITableViewDataSource, UITableViewDelegate 
             return
         }
         UIPasteboard.general.string = copy.body
-        NotificationCenter.default.post(name: .ToastMessageDidAppear, object: Localized.TOAST_COPIED)
+        showAutoHiddenHud(style: .notification, text: Localized.TOAST_COPIED)
     }
+    
+}
 
-    private func canCopyAction(indexPath: IndexPath) -> (Bool, String) {
-        guard indexPath.section == 1 else {
-            return (false, "")
+extension TransactionViewController {
+    
+    private func updateTableViewContentInsetBottom() {
+        if view.safeAreaInsets.bottom > 20 {
+            tableView.contentInset.bottom = 0
+        } else {
+            tableView.contentInset.bottom = 20
         }
-        switch indexPath.row {
-        case 0:
-            return (true, snapshot.snapshotId)
-        case 3:
-            switch snapshot.type {
-            case SnapshotType.deposit.rawValue:
-                return (true, snapshot.sender ?? "")
-            case SnapshotType.withdrawal.rawValue, SnapshotType.fee.rawValue, SnapshotType.rebate.rawValue:
-                return (true, snapshot.transactionHash ?? "")
-            default:
+    }
+    
+    private func layoutTableHeaderView() {
+        let targetSize = CGSize(width: AppDelegate.current.mainWindow.bounds.width,
+                                height: UIView.layoutFittingExpandedSize.height)
+        tableHeaderView.frame.size.height = tableHeaderView.systemLayoutSizeFitting(targetSize).height
+    }
+    
+    private func fetchThatTimePrice() {
+        AssetAPI.ticker(asset: snapshot.assetId, offset: snapshot.createdAt) { [weak self](result) in
+            guard let self = self else {
+                return
+            }
+            switch result {
+            case let .success(asset):
+                let nowValue = Currency.current.symbol + self.getFormatValue(priceUsd: self.asset.priceUsd)
+                let thenValue = asset.priceUsd.doubleValue > 0 ? Currency.current.symbol + self.getFormatValue(priceUsd: asset.priceUsd) : R.string.localizable.wallet_no_price()
+                self.fiatMoneyValueLabel.text = R.string.localizable.transaction_value_now(nowValue) + "\n" + R.string.localizable.transaction_value_then(thenValue)
+            case .failure:
                 break
             }
-        case 4:
-            switch snapshot.type {
-            case SnapshotType.deposit.rawValue:
-                return (true, snapshot.transactionHash ?? "")
-            case SnapshotType.withdrawal.rawValue, SnapshotType.fee.rawValue, SnapshotType.rebate.rawValue:
-                return (true, snapshot.receiver ?? "")
-            default:
-                break
+        }
+    }
+    
+    private func fetchTransaction() {
+        if snapshot.type == SnapshotType.withdrawal.rawValue && snapshot.transactionHash.isNilOrEmpty {
+            SnapshotAPI.snapshot(snapshotId: snapshot.snapshotId) { [weak self](result) in
+                switch result {
+                case let .success(snapshot):
+                    DispatchQueue.global().async {
+                        guard let snapshotItem = SnapshotDAO.shared.saveSnapshot(snapshot: snapshot) else {
+                            return
+                        }
+                        
+                        DispatchQueue.main.async {
+                            self?.snapshot = snapshotItem
+                            self?.makeContents()
+                            self?.tableView.reloadData()
+                        }
+                    }
+                case .failure:
+                    break
+                }
+            }
+        } else if snapshot.type == SnapshotType.pendingDeposit.rawValue {
+            let assetId = asset.assetId
+            let snapshotId = snapshot.snapshotId
+            AssetAPI.pendingDeposits(assetId: assetId, destination: asset.destination, tag: asset.tag) { [weak self](result) in
+                switch result {
+                case let .success(deposits):
+                    DispatchQueue.global().async {
+                        guard let snapshotItem = SnapshotDAO.shared.replacePendingDeposits(assetId: assetId, pendingDeposits: deposits, snapshotId: snapshotId) else {
+                            return
+                        }
+                        DispatchQueue.main.async {
+                            self?.snapshot = snapshotItem
+                            self?.makeContents()
+                            self?.tableView.reloadData()
+                        }
+                    }
+                case .failure:
+                    break
+                }
+            }
+        }
+    }
+    
+    private func getFormatValue(priceUsd: String) -> String {
+        let fiatMoneyValue = snapshot.amount.doubleValue * priceUsd.doubleValue * Currency.current.rate
+        return CurrencyFormatter.localizedString(from: fiatMoneyValue, format: .fiatMoney, sign: .never) ?? ""
+    }
+    
+    private func makeContents() {
+        contents = []
+        contents.append((title: Localized.TRANSACTION_ID, subtitle: snapshot.snapshotId))
+        contents.append((title: Localized.TRANSACTION_ASSET, subtitle: asset.name))
+        switch snapshot.type {
+        case SnapshotType.deposit.rawValue, SnapshotType.pendingDeposit.rawValue:
+            contents.append((title: Localized.TRANSACTION_TYPE, subtitle: Localized.TRANSACTION_TYPE_DEPOSIT))
+            if snapshot.type == SnapshotType.pendingDeposit.rawValue, let finished = snapshot.confirmations, let total = asset?.confirmations {
+                contents.append((title: R.string.localizable.transaction_status(), subtitle: Localized.PENDING_DEPOSIT_CONFIRMATION(numerator: finished,
+                denominator: total)))
+            }
+            contents.append((title: R.string.localizable.transaction_hash(), subtitle: snapshot.transactionHash))
+            if snapshot.hasSender {
+                contents.append((title: R.string.localizable.wallet_address_destination(), subtitle: snapshot.sender))
+            }
+            if snapshot.hasMemo {
+                contents.append((title: asset.memoLabel, subtitle: snapshot.memo))
+            }
+        case SnapshotType.transfer.rawValue:
+            contents.append((title: Localized.TRANSACTION_TYPE, subtitle: Localized.TRANSACTION_TYPE_TRANSFER))
+            if snapshot.amount.doubleValue > 0 {
+                contents.append((title: R.string.localizable.wallet_snapshot_transfer_from(), subtitle: snapshot.opponentUserFullName))
+            } else {
+                contents.append((title: R.string.localizable.wallet_snapshot_transfer_to(), subtitle: snapshot.opponentUserFullName))
+            }
+            if snapshot.hasMemo {
+                contents.append((title: Localized.TRANSACTION_MEMO, subtitle: snapshot.memo))
+            }
+        case SnapshotType.raw.rawValue:
+            contents.append((title: Localized.TRANSACTION_TYPE, subtitle: R.string.localizable.transaction_type_raw()))
+            contents.append((title: R.string.localizable.transaction_hash(), subtitle: snapshot.transactionHash))
+            if snapshot.hasSender {
+                contents.append((title: R.string.localizable.wallet_snapshot_transfer_from(), subtitle: snapshot.sender))
+            }
+            if snapshot.hasReceiver {
+                contents.append((title: R.string.localizable.wallet_snapshot_transfer_to(), subtitle: snapshot.receiver))
+            }
+            if snapshot.hasMemo {
+                contents.append((title: Localized.TRANSACTION_MEMO, subtitle: snapshot.memo))
+            }
+        case SnapshotType.withdrawal.rawValue:
+            contents.append((title: Localized.TRANSACTION_TYPE, subtitle:
+                Localized.TRANSACTION_TYPE_WITHDRAWAL))
+            contents.append((title: R.string.localizable.transaction_hash(), subtitle: snapshot.transactionHash))
+            contents.append((title: R.string.localizable.transaction_receiver(), subtitle: snapshot.receiver))
+            if snapshot.hasMemo {
+                contents.append((title: asset.memoLabel, subtitle: snapshot.memo))
+            }
+        case SnapshotType.fee.rawValue:
+            contents.append((title: Localized.TRANSACTION_TYPE, subtitle: Localized.TRANSACTION_TYPE_FEE))
+            contents.append((title: R.string.localizable.transaction_hash(), subtitle: snapshot.transactionHash))
+            contents.append((title: R.string.localizable.transaction_receiver(), subtitle: snapshot.receiver))
+            if snapshot.hasMemo {
+                contents.append((title: asset.memoLabel, subtitle: snapshot.memo))
+            }
+        case SnapshotType.rebate.rawValue:
+            contents.append((title: Localized.TRANSACTION_TYPE, subtitle: Localized.TRANSACTION_TYPE_REBATE))
+            contents.append((title: R.string.localizable.transaction_hash(), subtitle: snapshot.transactionHash))
+            contents.append((title: R.string.localizable.transaction_receiver(), subtitle: snapshot.receiver))
+            if snapshot.hasMemo {
+                contents.append((title: asset.memoLabel, subtitle: snapshot.memo))
             }
         default:
             break
         }
-        return (false, "")
+        contents.append((title: Localized.TRANSACTION_DATE, subtitle: DateFormatter.dateFull.string(from: snapshot.createdAt.toUTCDate())))
     }
+    
+    private func canCopyAction(indexPath: IndexPath) -> (Bool, String) {
+        let title = contents[indexPath.row].title
+        let subtitle = contents[indexPath.row].subtitle
+        switch title {
+        case R.string.localizable.transaction_id(),
+             R.string.localizable.transaction_hash(),
+             R.string.localizable.transaction_memo(),
+             asset.memoLabel,
+             R.string.localizable.wallet_address_destination(),
+             R.string.localizable.wallet_snapshot_transfer_from(),
+             R.string.localizable.wallet_snapshot_transfer_to():
+            return (true, subtitle ?? "")
+        default:
+            return (false, "")
+        }
+    }
+    
 }

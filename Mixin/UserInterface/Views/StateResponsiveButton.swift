@@ -2,8 +2,8 @@ import UIKit
 
 class StateResponsiveButton: CornerButton {
     
-    let activityIndicator = UIActivityIndicatorView(style: .gray)
-
+    let activityIndicator = ActivityIndicatorView()
+    
     @IBInspectable var enabledColor: UIColor?
     @IBInspectable var disabledColor: UIColor?
     
@@ -52,7 +52,8 @@ class StateResponsiveButton: CornerButton {
     
     private func prepare() {
         enabledColor = .theme
-        disabledColor = .backgroundGray
+        disabledColor = R.color.button_background_disabled()
+        activityIndicator.tintColor = .accessoryText
         addSubview(activityIndicator)
         activityIndicator.snp.makeConstraints { (make) in
             make.centerX.equalTo(snp.centerX)

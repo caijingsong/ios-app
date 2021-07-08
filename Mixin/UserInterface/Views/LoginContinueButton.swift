@@ -2,16 +2,16 @@ import UIKit
 
 class LoginContinueButton: StateResponsiveButton {
     
-    static let size = CGSize(width: 60, height: 60)
+    static let size = CGSize(width: 44, height: 44)
     
     override init(frame: CGRect) {
         super.init(frame: frame)
-        activityIndicator.style = .white
+        activityIndicator.tintColor = .white
     }
     
     required init?(coder aDecoder: NSCoder) {
         super.init(coder: aDecoder)
-        activityIndicator.style = .white
+        activityIndicator.tintColor = .white
     }
     
     override var intrinsicContentSize: CGSize {

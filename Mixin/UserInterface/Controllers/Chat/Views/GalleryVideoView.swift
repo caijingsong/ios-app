@@ -1,22 +1,26 @@
-import Foundation
-import AVKit
+import UIKit
+import AVFoundation
 
-class GalleryVideoView: UIView {
+final class GalleryVideoView: UIView, GalleryAnimatable {
     
-    override static var layerClass: AnyClass {
-        return AVPlayerLayer.self
-    }
-    
-    override var layer: AVPlayerLayer {
-        return super.layer as! AVPlayerLayer
-    }
-    
+    let contentView = UIView()
+    let coverImageView = UIImageView()
     let player = AVPlayer()
-    private let unplayableHintImageView = UIImageView(image: #imageLiteral(resourceName: "ic_file_expired"))
-    private let thumbnailImageView = UIImageView()
-    private let playableKey = "playable"
+    let playerView = PlayerView()
+    let controlView = R.nib.galleryVideoControlView(owner: nil)!
     
-    private var url: URL?
+    var coverSize = CGSize(width: 1, height: 1)
+    var videoRatio: CGFloat = 1
+    var isPipMode = false {
+        didSet {
+            if isPipMode {
+                controlView.style.insert(.pip)
+            } else {
+                controlView.style.remove(.pip)
+            }
+            layoutIfNeeded()
+        }
+    }
     
     required init?(coder aDecoder: NSCoder) {
         super.init(coder: aDecoder)
@@ -28,98 +32,55 @@ class GalleryVideoView: UIView {
         prepare()
     }
     
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        let center = CGPoint(x: bounds.midX, y: bounds.midY)
-        unplayableHintImageView.center = center
-        thumbnailImageView.frame = bounds
-    }
-
-    func loadVideo(asset: AVAsset, thumbnail: UIImage?) {
-        let item = AVPlayerItem(asset: asset)
-        if item.asset.statusOfValue(forKey: playableKey, error: nil) == .loaded {
-            loadItem(item, playAfterLoaded: false, thumbnail: thumbnail)
-        } else {
-            item.asset.loadValuesAsynchronously(forKeys: [playableKey], completionHandler: {
-                DispatchQueue.main.async {
-                    self.loadItem(item, playAfterLoaded: false, thumbnail: thumbnail)
-                }
-            })
-        }
+    convenience init() {
+        self.init(frame: CGRect(x: 0, y: 0, width: 375, height: 240))
+        backgroundColor = .clear
     }
     
-    func loadVideo(url: URL, playAfterLoaded: Bool, thumbnail: UIImage?) {
-        if url != self.url {
-            self.url = url
-            let item = AVPlayerItem(url: url)
-            if item.asset.statusOfValue(forKey: playableKey, error: nil) == .loaded {
-                loadItem(item, playAfterLoaded: playAfterLoaded, thumbnail: thumbnail)
-            } else {
-                item.asset.loadValuesAsynchronously(forKeys: [playableKey], completionHandler: {
-                    guard url == self.url else {
-                        return
-                    }
-                    DispatchQueue.main.async {
-                        guard url == self.url else {
-                            return
-                        }
-                        self.loadItem(item, playAfterLoaded: playAfterLoaded, thumbnail: thumbnail)
-                    }
-                })
-            }
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        
+        let contentHeight = min(bounds.height, ceil(bounds.width / videoRatio))
+        contentView.bounds.size = CGSize(width: bounds.width , height: contentHeight)
+        contentView.center = CGPoint(x: bounds.midX, y: bounds.midY)
+        
+        playerView.frame = contentView.bounds
+        coverImageView.frame = coverSize.rect(fittingSize: contentView.bounds.size)
+        
+        layoutControlView()
+    }
+    
+    override func safeAreaInsetsDidChange() {
+        super.safeAreaInsetsDidChange()
+        layoutControlView()
+    }
+    
+    private func layoutControlView() {
+        let safeAreaInsets = AppDelegate.current.mainWindow.safeAreaInsets
+        if isPipMode || safeAreaInsets.top <= 20 {
+            controlView.frame = bounds
         } else {
-            if playAfterLoaded, player.timeControlStatus != .playing, let item = player.currentItem, item.asset.isPlayable {
-                player.play()
-            }
+            controlView.frame = bounds.inset(by: safeAreaInsets)
         }
     }
     
     private func prepare() {
-        layer.player = player
-        addSubview(thumbnailImageView)
-        unplayableHintImageView.isHidden = true
-        addSubview(unplayableHintImageView)
+        contentView.frame = bounds
+        contentView.clipsToBounds = true
+        contentView.backgroundColor = .black
+        
+        coverImageView.contentMode = .scaleAspectFill
+        
+        playerView.backgroundColor = .clear
+        playerView.layer.videoGravity = .resizeAspect
+        playerView.layer.player = player
+        
+        contentView.addSubview(coverImageView)
+        contentView.addSubview(playerView)
+        addSubview(contentView)
+        
+        controlView.frame = bounds
+        addSubview(controlView)
     }
     
-    private func loadItem(_ item: AVPlayerItem, playAfterLoaded: Bool, thumbnail: UIImage?) {
-        let isPlayable = item.asset.isPlayable
-        unplayableHintImageView.isHidden = isPlayable
-        thumbnailImageView.isHidden = isPlayable
-        if isPlayable {
-            player.replaceCurrentItem(with: item)
-            if playAfterLoaded {
-                player.play()
-            }
-        } else {
-            thumbnailImageView.image = thumbnail
-        }
-    }
-
-    func pause() {
-        guard player.currentItem != nil else {
-            return
-        }
-        player.pause()
-    }
-
-    func play() {
-        guard player.currentItem != nil, player.status == .readyToPlay else {
-            return
-        }
-        player.play()
-    }
-
-    func isPlaying() -> Bool {
-        guard player.currentItem != nil, player.status == .readyToPlay else {
-            return false
-        }
-        return player.rate > 0
-    }
-
-    func seek(to: CMTime) {
-        guard player.currentItem != nil, player.status == .readyToPlay else {
-            return
-        }
-        player.seek(to: to)
-    }
 }

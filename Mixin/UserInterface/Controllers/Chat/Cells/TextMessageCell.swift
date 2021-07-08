@@ -20,9 +20,8 @@ class TextMessageCell: DetailInfoMessageCell {
     
     override func prepare() {
         super.prepare()
-        contentView.addSubview(contentLabel)
+        messageContentView.addSubview(contentLabel)
         contentLabel.backgroundColor = .clear
-        timeLabel.textColor = .infoGray
     }
     
 }

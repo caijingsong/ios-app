@@ -1,4 +1,5 @@
 import UIKit
+import MixinServices
 
 class StickerInputViewController: UIViewController {
     
@@ -6,11 +7,11 @@ class StickerInputViewController: UIViewController {
     
     private var pageViewController: UIPageViewController!
     private let modelController = StickerInputModelController()
-    private let albumCellReuseId = "AlbumCollectionViewCell"
     private var officialAlbums = [Album]()
     private var currentIndex = NSNotFound
     private var pageScrollView: UIScrollView?
     private var isScrollingByAlbumSelection = false
+    private var currentPage: StickersCollectionViewController!
     
     var numberOfAllAlbums: Int {
         return officialAlbums.count + modelController.numberOfFixedControllers
@@ -37,6 +38,16 @@ class StickerInputViewController: UIViewController {
         pageScrollView?.delegate = self
     }
     
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        self.animated = true
+    }
+    
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        self.animated = false
+    }
+    
     override func prepare(for segue: UIStoryboardSegue, sender: Any?) {
         super.prepare(for: segue, sender: sender)
         if let page = segue.destination as? UIPageViewController {
@@ -57,6 +68,7 @@ class StickerInputViewController: UIViewController {
                     let index = initialViewController.index
                     self.currentIndex = index
                     self.selectAlbum(at: index)
+                    self.currentPage = initialViewController
                 } else {
                     initialViewControllers = []
                 }
@@ -66,8 +78,12 @@ class StickerInputViewController: UIViewController {
         }
     }
     
-    static func instance() -> StickerInputViewController {
-        return Storyboard.chat.instantiateViewController(withIdentifier: "sticker_input") as! StickerInputViewController
+}
+
+extension StickerInputViewController: ConversationInputInteractiveResizableViewController {
+    
+    var interactiveResizableScrollView: UIScrollView {
+        return currentPage.collectionView
     }
     
 }
@@ -79,20 +95,22 @@ extension StickerInputViewController: UICollectionViewDataSource {
     }
     
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-        let cell = collectionView.dequeueReusableCell(withReuseIdentifier: albumCellReuseId, for: indexPath) as! AlbumCollectionViewCell
+        let cell = collectionView.dequeueReusableCell(withReuseIdentifier: R.reuseIdentifier.sticker_album, for: indexPath)!
         switch indexPath.row {
         case 0:
-            cell.imageView.image = #imageLiteral(resourceName: "ic_recent_stickers")
+            cell.imageView.image = R.image.ic_recent_stickers()
             cell.imageView.contentMode = .center
         case 1:
-            cell.imageView.image = #imageLiteral(resourceName: "ic_sticker_favorite")
+            cell.imageView.image = R.image.ic_sticker_favorite()
             cell.imageView.contentMode = .center
         case 2:
-            cell.imageView.image = #imageLiteral(resourceName: "ic_gif")
+            cell.imageView.image = R.image.ic_gif()
             cell.imageView.contentMode = .center
         default:
-            if let url = URL(string: officialAlbums[indexPath.row - modelController.numberOfFixedControllers].iconUrl) {
-                cell.imageView.sd_setImage(with: url, completed: nil)
+            let album = officialAlbums[indexPath.row - modelController.numberOfFixedControllers]
+            if let url = URL(string: album.iconUrl) {
+                let context = stickerLoadContext(category: album.category)
+                cell.imageView.sd_setImage(with: url, placeholderImage: nil, context: context)
             }
             cell.imageView.contentMode = .scaleAspectFit
         }
@@ -163,6 +181,7 @@ extension StickerInputViewController: UIScrollViewDelegate {
             if width > maxWidth {
                 maxWidth = width
                 focusedIndex = vc.index
+                currentPage = vc
             }
         }
         selectAlbum(at: focusedIndex)

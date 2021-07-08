@@ -1,9 +1,10 @@
 import UIKit
+import MixinServices
 
 class HiddenAssetViewController: UIViewController {
 
     @IBOutlet weak var tableView: UITableView!
-
+    
     private var assets = [AssetItem]()
 
     private lazy var assetAction: UITableViewRowAction = {
@@ -14,15 +15,22 @@ class HiddenAssetViewController: UIViewController {
             let assetId = weakSelf.assets[indexPath.row].assetId
             weakSelf.assets.remove(at: indexPath.row)
             weakSelf.tableView.deleteRows(at: [indexPath], with: .fade)
-            WalletUserDefault.shared.hiddenAssets[assetId] = nil
+            AppGroupUserDefaults.Wallet.hiddenAssetIds[assetId] = nil
+            NotificationCenter.default.post(onMainThread: Application.assetVisibilityDidChangeNotification, object: self)
         })
-        action.backgroundColor = .actionBackground
+        action.backgroundColor = .theme
         return action
     }()
     
     override func viewDidLoad() {
         super.viewDidLoad()
-        prepareTableView()
+        updateTableViewContentInset()
+        tableView.register(R.nib.assetCell)
+        tableView.dataSource = self
+        tableView.delegate = self
+        tableView.tableFooterView = UIView()
+        tableView.reloadData()
+        NotificationCenter.default.addObserver(self, selector: #selector(fetchAssets), name: Application.assetVisibilityDidChangeNotification, object: nil)
         fetchAssets()
     }
     
@@ -30,19 +38,14 @@ class HiddenAssetViewController: UIViewController {
         NotificationCenter.default.removeObserver(self)
     }
 
-    private func prepareTableView() {
-        tableView.register(UINib(nibName: "WalletAssetCell", bundle: nil), forCellReuseIdentifier: WalletAssetCell.cellIdentifier)
-        tableView.dataSource = self
-        tableView.delegate = self
-        tableView.tableFooterView = UIView()
-        tableView.reloadData()
-        NotificationCenter.default.addObserver(self, selector: #selector(fetchAssets), name: .AssetVisibleDidChange, object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(fetchAssets), name: .HiddenAssetsDidChange, object: nil)
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        updateTableViewContentInset()
     }
-
+    
     @objc private func fetchAssets() {
         DispatchQueue.global().async { [weak self] in
-            let hiddenAssets = WalletUserDefault.shared.hiddenAssets
+            let hiddenAssets = AppGroupUserDefaults.Wallet.hiddenAssetIds
             let assets = AssetDAO.shared.getAssets().filter({ (asset) -> Bool in
                 return hiddenAssets[asset.assetId] != nil
             })
@@ -52,7 +55,9 @@ class HiddenAssetViewController: UIViewController {
                 }
                 weakSelf.assets = assets
                 weakSelf.tableView.reloadData()
-                weakSelf.tableView.checkEmpty(dataCount: assets.count, text: Localized.WALLET_HIDE_ASSET_EMPTY, photo: #imageLiteral(resourceName: "ic_empty_hidden_assets"))
+                weakSelf.tableView.checkEmpty(dataCount: assets.count,
+                                              text: Localized.WALLET_HIDE_ASSET_EMPTY,
+                                              photo: R.image.emptyIndicator.ic_hidden_assets()!)
             }
         }
     }
@@ -62,42 +67,37 @@ class HiddenAssetViewController: UIViewController {
     }
 
     class func instance() -> UIViewController {
-        let vc = Storyboard.wallet.instantiateViewController(withIdentifier: "hidden_assets")
+        let vc = R.storyboard.wallet.hidden_assets()!
         let container = ContainerViewController.instance(viewController: vc, title: Localized.WALLET_MENU_SHOW_HIDDEN_ASSETS)
-        container.automaticallyAdjustsScrollViewInsets = false
         return container
     }
+    
+    private func updateTableViewContentInset() {
+        if view.safeAreaInsets.bottom < 1 {
+            tableView.contentInset.bottom = 10
+        } else {
+            tableView.contentInset.bottom = 0
+        }
+    }
+    
 }
 
 extension HiddenAssetViewController: UITableViewDataSource, UITableViewDelegate {
-
-    func numberOfSections(in tableView: UITableView) -> Int {
-        return 1
-    }
-
+    
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         return assets.count
     }
-
-    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        return WalletAssetCell.cellHeight
-    }
-
+    
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let asset = assets[indexPath.row]
-        let cell = tableView.dequeueReusableCell(withIdentifier: WalletAssetCell.cellIdentifier) as! WalletAssetCell
+        let cell = tableView.dequeueReusableCell(withIdentifier: R.reuseIdentifier.asset, for: indexPath)!
         cell.render(asset: asset)
         return cell
     }
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-
         navigationController?.pushViewController(AssetViewController.instance(asset: assets[indexPath.row]), animated: true)
-    }
-
-    func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
-        return CGFloat.leastNormalMagnitude
     }
     
     func tableView(_ tableView: UITableView, editActionsForRowAt indexPath: IndexPath) -> [UITableViewRowAction]? {
@@ -106,3 +106,10 @@ extension HiddenAssetViewController: UITableViewDataSource, UITableViewDelegate 
     
 }
 
+extension HiddenAssetViewController: ContainerViewControllerDelegate {
+    
+    var prefersNavigationBarSeparatorLineHidden: Bool {
+        return true
+    }
+    
+}

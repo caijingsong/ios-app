@@ -1,102 +1,91 @@
 import UIKit
+import MixinServices
 
 class AuthorizationsViewController: UIViewController {
     
-    @IBOutlet weak var tableView: UITableView!
+    @IBOutlet weak var searchBoxView: SearchBoxView!
     @IBOutlet weak var networkIndicatorTopConstraint: NSLayoutConstraint!
     @IBOutlet weak var networkIndicatorHeightConstraint: NSLayoutConstraint!
-    @IBOutlet weak var networkIndicatorView: UIActivityIndicatorView!
+    @IBOutlet weak var networkIndicatorView: ActivityIndicatorView!
+    @IBOutlet weak var contentContainerView: UIView!
     
-    private let cellReuseId = "authorization"
+    private var contentViewController: AuthorizationsContentViewController!
+    private var isDataLoaded = false
     
-    private var authorizations = [AuthorizationResponse]()
-    
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        tableView.dataSource = self
-        tableView.delegate = self
-        tableView.tableFooterView = UIView()
-        reload()
-    }
+    private lazy var searchContentViewController: AuthorizationsContentViewController = {
+        let controller = R.storyboard.setting.authorizations_content()!
+        addChild(controller)
+        contentContainerView.addSubview(controller.view)
+        controller.view.snp.makeEdgesEqualToSuperview()
+        controller.didMove(toParent: self)
+        return controller
+    }()
     
     class func instance() -> UIViewController {
-        let vc = Storyboard.setting.instantiateViewController(withIdentifier: "authorization")
+        let vc = R.storyboard.setting.authorization()!
         return ContainerViewController.instance(viewController: vc, title: Localized.SETTING_AUTHORIZATIONS)
     }
     
-}
-
-extension AuthorizationsViewController: UITableViewDataSource {
-    
-    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return authorizations.count
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        searchBoxView.textField.addTarget(self, action: #selector(search(_:)), for: .editingChanged)
+        searchBoxView.textField.placeholder = R.string.localizable.search_placeholder_authorization()
+        searchBoxView.textField.rightViewMode = .always
+        view.layoutIfNeeded()
     }
     
-    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(withIdentifier: cellReuseId) as! AuthorizationTableViewCell
-        let app = authorizations[indexPath.row].app
-        cell.iconImageView.setImage(with: app.iconUrl, identityNumber: app.appNumber, name: app.name)
-        cell.titleLabel.text = app.name
-        cell.subtitleLabel.text = app.appNumber
-        return cell
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        reloadData()
     }
     
-}
-
-extension AuthorizationsViewController: UITableViewDelegate {
-    
-    func tableView(_ tableView: UITableView, editActionsForRowAt indexPath: IndexPath) -> [UITableViewRowAction]? {
-        let action = UITableViewRowAction(style: .destructive,
-                                          title: Localized.ACTION_DEAUTHORIZE,
-                                          handler: tableViewCommitDeleteAction)
-        return [action]
-    }
-
-    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        tableView.deselectRow(at: indexPath, animated: true)
+    override func prepare(for segue: UIStoryboardSegue, sender: Any?) {
+        super.prepare(for: segue, sender: sender)
+        if let destination = segue.destination as? AuthorizationsContentViewController {
+            contentViewController = destination
+        }
     }
     
-}
-
-extension AuthorizationsViewController {
+    @objc private func search(_ textField: UITextField) {
+        guard textField.markedTextRange == nil else {
+            return
+        }
+        let keyword = (textField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if keyword.isEmpty {
+            contentContainerView.bringSubviewToFront(contentViewController.view)
+        } else {
+            let results = contentViewController.authorizations.filter { (auth) -> Bool in
+                auth.app.name.lowercased().contains(keyword) || auth.app.appNumber.contains(keyword)
+            }
+            searchContentViewController.authorizations = results
+            if isDataLoaded {
+                searchContentViewController.tableView.checkEmpty(dataCount: results.count,
+                                                                 text: R.string.localizable.no_result(),
+                                                                 photo: R.image.emptyIndicator.ic_search_result()!)
+            }
+            contentContainerView.bringSubviewToFront(searchContentViewController.view)
+        }
+    }
     
-    private func reload() {
-        AuthorizeAPI.shared.authorizations { [weak self] (result) in
+    private func reloadData() {
+        AuthorizeAPI.authorizations { [weak self] (result) in
             switch result {
-            case .success(let response):
-                self?.load(authorizations: response)
-            case .failure(_):
-                DispatchQueue.global().asyncAfter(deadline: .now() + 2, execute: {
-                    self?.reload()
-                })
+            case let .success(response):
+                if let self = self {
+                    self.contentViewController.authorizations = response
+                    self.networkIndicatorView.stopAnimating()
+                    self.networkIndicatorTopConstraint.constant = self.networkIndicatorHeightConstraint.constant
+                    UIView.animate(withDuration: 0.25, animations: self.view.layoutIfNeeded)
+                    self.contentViewController.tableView.checkEmpty(dataCount: response.count,
+                                                                    text: R.string.localizable.setting_no_authorizations(),
+                                                                    photo: R.image.emptyIndicator.ic_authorization()!)
+                    self.isDataLoaded = true
+                    self.search(self.searchBoxView.textField)
+                }
+            case let .failure(error):
+                showAutoHiddenHud(style: .error, text: error.localizedDescription)
             }
         }
-    }
-    
-    private func load(authorizations: [AuthorizationResponse]) {
-        self.authorizations = authorizations
-        tableView.reloadData()
-        networkIndicatorView.stopAnimating()
-        networkIndicatorTopConstraint.constant = networkIndicatorHeightConstraint.constant
-        UIView.animate(withDuration: 0.25) {
-            self.view.layoutIfNeeded()
-        }
-    }
-    
-    private func tableViewCommitDeleteAction(action: UITableViewRowAction, indexPath: IndexPath) {
-        let app = authorizations[indexPath.row].app
-        let alert = UIAlertController(title: Localized.SETTING_DEAUTHORIZE_CONFIRMATION(name: app.name), message: nil, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: Localized.DIALOG_BUTTON_CANCEL, style: .cancel, handler: nil))
-        alert.addAction(UIAlertAction(title: Localized.DIALOG_BUTTON_CONFIRM, style: .destructive, handler: { (action) in
-            self.removeAuthorization(at: indexPath)
-        }))
-        present(alert, animated: true, completion: nil)
-    }
-    
-    private func removeAuthorization(at indexPath: IndexPath) {
-        let auth = authorizations.remove(at: indexPath.row)
-        tableView.deleteRows(at: [indexPath], with: .automatic)
-        AuthorizeAPI.shared.cancel(clientId: auth.app.appId) { (_) in }
     }
     
 }

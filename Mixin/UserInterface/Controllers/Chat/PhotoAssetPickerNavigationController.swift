@@ -1,7 +1,7 @@
 import UIKit
 import Photos
 
-protocol PhotoAssetPickerDelegate: class {
+protocol PhotoAssetPickerDelegate: AnyObject {
     func pickerController(_ picker: PickerViewController, contentOffset: CGPoint, didFinishPickingMediaWithAsset asset: PHAsset)
 }
 
@@ -14,12 +14,13 @@ class PhotoAssetPickerNavigationController: UINavigationController {
         interactivePopGestureRecognizer?.delegate = self
     }
     
-    class func instance(pickerDelegate: PhotoAssetPickerDelegate?, isFilterCustomSticker: Bool = false, scrollToOffset: CGPoint = CGPoint.zero) -> UIViewController {
-        let vc = Storyboard.photo.instantiateInitialViewController() as! PhotoAssetPickerNavigationController
+    class func instance(pickerDelegate: PhotoAssetPickerDelegate?, showImageOnly: Bool = false, scrollToOffset: CGPoint = CGPoint.zero) -> UIViewController {
+        let vc = R.storyboard.photo.instantiateInitialViewController()!
         vc.pickerDelegate = pickerDelegate
-        let albums = AlbumViewController.instance(isFilterCustomSticker: isFilterCustomSticker)
-        let picker = ContainerViewController.instance(viewController: PickerViewController.instance(isFilterCustomSticker: isFilterCustomSticker, scrollToOffset: scrollToOffset), title: "")
-        vc.viewControllers = [albums, picker]
+        let albums = AlbumViewController.instance(showImageOnly: showImageOnly)
+        let picker = PickerViewController.instance(showImageOnly: showImageOnly, scrollToOffset: scrollToOffset)
+        let pickerContainer = ContainerViewController.instance(viewController: picker, title: "")
+        vc.viewControllers = [albums, pickerContainer]
         return vc
     }
     

@@ -1,5 +1,4 @@
 import Photos
-import SwiftMessages
 
 extension PHPhotoLibrary {
 
@@ -14,18 +13,22 @@ extension PHPhotoLibrary {
         }
 
         switch PHPhotoLibrary.authorizationStatus() {
-        case .authorized:
+        case .authorized, .limited:
             block(true)
         case .notDetermined:
             PHPhotoLibrary.requestAuthorization { (status) in
                 switch status {
-                case .authorized:
+                case .authorized, .limited:
                     block(true)
                 case .denied, .notDetermined, .restricted:
+                    block(false)
+                @unknown default:
                     block(false)
                 }
             }
         case .denied, .restricted:
+            block(false)
+        @unknown default:
             block(false)
         }
     }
@@ -36,9 +39,9 @@ extension PHPhotoLibrary {
         }, completionHandler: { (success, error) in
             DispatchQueue.main.async {
                 if success {
-                    SwiftMessages.showToast(message: Localized.CAMERA_SAVE_PHOTO_SUCCESS, backgroundColor: .hintGreen)
+                    showAutoHiddenHud(style: .notification, text: Localized.CAMERA_SAVE_PHOTO_SUCCESS)
                 } else {
-                    SwiftMessages.showToast(message: Localized.CAMERA_SAVE_PHOTO_FAILED, backgroundColor: .hintRed)
+                    showAutoHiddenHud(style: .error, text: Localized.CAMERA_SAVE_PHOTO_FAILED)
                 }
             }
         })

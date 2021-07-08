@@ -1,91 +1,91 @@
 import UIKit
+import MixinServices
 
 class DepositViewController: UIViewController {
-
-    @IBOutlet weak var avatarImageView: AvatarImageView!
-    @IBOutlet weak var qrcodeAvatarImageView: AvatarImageView!
-    @IBOutlet weak var qrcodeImageView: UIImageView!
-    @IBOutlet weak var fullNameLabel: UILabel!
-    @IBOutlet weak var identifyNumberLabel: UILabel!
-    @IBOutlet weak var addressButton: UIButton!
-    @IBOutlet weak var confirmationLabel: UILabel!
-    @IBOutlet weak var blockchainImageView: CornerImageView!
-    @IBOutlet weak var normalAssetView: UIView!
-    @IBOutlet weak var accountAssetView: UIView!
-    @IBOutlet weak var accountConfirmationLabel: UILabel!
-    @IBOutlet weak var accountNameLabel: UILabel!
-    @IBOutlet weak var accountMemoLabel: UILabel!
+    
+    @IBOutlet weak var scrollView: UIScrollView!
+    @IBOutlet weak var upperDepositFieldView: DepositFieldView!
+    @IBOutlet weak var lowerDepositFieldView: DepositFieldView!
+    @IBOutlet weak var hintLabel: UILabel!
+    @IBOutlet weak var warningLabel: UILabel!
     
     private var asset: AssetItem!
-
+    private lazy var depositWindow = QrcodeWindow.instance()
+    
     override func viewDidLoad() {
         super.viewDidLoad()
-
-        container?.subtitleLabel.text = asset.symbol
-        container?.subtitleLabel.isHidden = false
-
+        container?.setSubtitle(subtitle: asset.symbol)
         view.layoutIfNeeded()
-        
-        if asset.isAccount, let accountName = asset.accountName, let accountMemo = asset.accountTag {
-            accountNameLabel.text = accountName
-            accountMemoLabel.text = accountMemo
-            normalAssetView.isHidden = true
-            accountAssetView.isHidden = false
-            confirmationLabel.isHidden = true
-            accountConfirmationLabel.isHidden = false
-            accountConfirmationLabel.text = Localized.WALLET_DEPOSIT_ACCOUNT_NOTICE(symbol: asset.symbol, confirmations: asset.confirmations)
-        } else if let publicKey = asset.publicKey, !publicKey.isEmpty {
-            qrcodeImageView.image = UIImage(qrcode: publicKey, size: qrcodeImageView.frame.size)
-            addressButton.setTitle(asset.publicKey, for: .normal)
-            confirmationLabel.text = Localized.WALLET_DEPOSIT_CONFIRMATIONS(confirmations: asset.confirmations)
-            qrcodeAvatarImageView.sd_setImage(with: URL(string: asset.iconUrl), placeholderImage: #imageLiteral(resourceName: "ic_place_holder"))
-            qrcodeAvatarImageView.layer.borderColor = UIColor.white.cgColor
-            qrcodeAvatarImageView.layer.borderWidth = 2
-            if let chainIconUrl = asset.chainIconUrl {
-                blockchainImageView.sd_setImage(with: URL(string: chainIconUrl))
-                blockchainImageView.isHidden = false
+
+        upperDepositFieldView.titleLabel.text = R.string.localizable.wallet_address_destination()
+        upperDepositFieldView.contentLabel.text = asset.destination
+        let nameImage = UIImage(qrcode: asset.destination, size: upperDepositFieldView.qrCodeImageView.bounds.size)
+        upperDepositFieldView.qrCodeImageView.image = nameImage
+        upperDepositFieldView.assetIconView.setIcon(asset: asset)
+        upperDepositFieldView.shadowView.hasLowerShadow = true
+        upperDepositFieldView.delegate = self
+
+        if !asset.tag.isEmpty {
+            if asset.usesTag {
+                lowerDepositFieldView.titleLabel.text = R.string.localizable.wallet_address_tag()
             } else {
-                blockchainImageView.isHidden = true
+                lowerDepositFieldView.titleLabel.text = R.string.localizable.wallet_address_memo()
             }
-            normalAssetView.isHidden = false
-            accountAssetView.isHidden = true
-            confirmationLabel.isHidden = false
-            accountConfirmationLabel.isHidden = true
+            lowerDepositFieldView.contentLabel.text = asset.tag
+            let memoImage = UIImage(qrcode: asset.tag, size: lowerDepositFieldView.qrCodeImageView.bounds.size)
+            lowerDepositFieldView.qrCodeImageView.image = memoImage
+            lowerDepositFieldView.assetIconView.setIcon(asset: asset)
+            lowerDepositFieldView.shadowView.hasLowerShadow = false
+            lowerDepositFieldView.delegate = self
+            warningLabel.text = R.string.localizable.wallet_deposit_account_attention(asset.symbol)
+        } else {
+            lowerDepositFieldView.isHidden = true
+            if asset.reserve.doubleValue > 0 {
+                warningLabel.text = R.string.localizable.wallet_deposit_attention_minimum(asset.reserve, asset.chain?.symbol ?? "")
+            } else {
+                warningLabel.text = R.string.localizable.wallet_deposit_attention()
+            }
         }
 
-        if let account = AccountAPI.shared.account {
-            avatarImageView.setImage(with: account)
-            fullNameLabel.text = account.full_name
-            identifyNumberLabel.text = Localized.PROFILE_MIXIN_ID(id: account.identity_number)
-        }
-    }
+        hintLabel.text = asset.depositTips
 
-    @IBAction func copyAction(_ sender: Any) {
-        UIPasteboard.general.string = asset.publicKey
-        NotificationCenter.default.postOnMain(name: .ToastMessageDidAppear, object: Localized.TOAST_COPIED)
+        DepositTipWindow.instance().render(asset: asset).presentPopupControllerAnimated()
     }
-
-    @IBAction func copyAccountNameAction(_ sender: Any) {
-        UIPasteboard.general.string = asset.accountName
-        NotificationCenter.default.afterPostOnMain(name: .ToastMessageDidAppear, object: Localized.TOAST_COPIED)
-    }
-
-    @IBAction func copyAccountMemoAction(_ sender: Any) {
-        UIPasteboard.general.string = asset.accountTag
-        NotificationCenter.default.afterPostOnMain(name: .ToastMessageDidAppear, object: Localized.TOAST_COPIED)
-    }
-
-    @IBAction func openNameAction(_ sender: Any) {
-        DepositWindow.instance().presentView(asset: asset, isDisplayAccountName: true)
-    }
-
-    @IBAction func openMemoAction(_ sender: Any) {
-        DepositWindow.instance().presentView(asset: asset, isDisplayAccountName: false)
-    }
-
+    
     class func instance(asset: AssetItem) -> UIViewController {
-        let vc = Storyboard.wallet.instantiateViewController(withIdentifier: "deposit") as! DepositViewController
+        let vc = R.storyboard.wallet.deposit()!
         vc.asset = asset
         return ContainerViewController.instance(viewController: vc, title: Localized.WALLET_DEPOSIT)
+    }
+    
+}
+
+extension DepositViewController: ContainerViewControllerDelegate {
+    
+    var prefersNavigationBarSeparatorLineHidden: Bool {
+        return true
+    }
+    
+    func imageBarRightButton() -> UIImage? {
+        R.image.ic_titlebar_help()
+    }
+    
+    func barRightButtonTappedAction() {
+        UIApplication.shared.openURL(url: "https://mixinmessenger.zendesk.com/hc/articles/360018789931")
+    }
+    
+}
+
+extension DepositViewController: DepositFieldViewDelegate {
+    
+    func depositFieldViewDidCopyContent(_ view: DepositFieldView) {
+        showAutoHiddenHud(style: .notification, text: Localized.TOAST_COPIED)
+    }
+    
+    func depositFieldViewDidSelectShowQRCode(_ view: DepositFieldView) {
+        depositWindow.render(title: view.titleLabel.text ?? "",
+                             content: view.contentLabel.text ?? "",
+                             asset: asset)
+        depositWindow.presentView()
     }
 }

@@ -19,15 +19,15 @@ class NumberPadView: UIView, XibDesignable {
     }
     
     private var bottomSafeAreaInset: CGFloat {
-        if #available(iOS 11.0, *) {
-            var bottom = UIApplication.shared.keyWindow?.safeAreaInsets.bottom ?? 0
-            if bottom > 0 {
-                bottom += 41
-            }
-            return bottom
-        } else {
-            return 0
+        var bottom = UIApplication.shared.keyWindow?.safeAreaInsets.bottom ?? 0
+        if bottom > 0 {
+            bottom += 41
         }
+        return bottom
+    }
+    
+    override var intrinsicContentSize: CGSize {
+        return CGSize(width: bounds.width, height: contentHeight + bottomSafeAreaInset)
     }
     
     required init?(coder aDecoder: NSCoder) {
@@ -44,7 +44,9 @@ class NumberPadView: UIView, XibDesignable {
         guard let sender = sender as? NumberPadButton else {
             return
         }
-        UIDevice.current.playInputClick()
+        if !UIScreen.main.isCaptured {
+            UIDevice.current.playInputClick()
+        }
         target?.insertText(String(sender.number))
     }
     
@@ -55,6 +57,11 @@ class NumberPadView: UIView, XibDesignable {
     
     private func prepare() {
         loadXib()
+        if #available(iOS 14.0, *) {
+            backgroundColor = R.color.keyboard_background_14()
+        } else {
+            backgroundColor = R.color.keyboard_background_13()
+        }
         var bounds = UIScreen.main.bounds
         bounds.size.height = contentHeight + bottomSafeAreaInset
         contentViewBottomConstraint.constant = contentBottomMargin + bottomSafeAreaInset

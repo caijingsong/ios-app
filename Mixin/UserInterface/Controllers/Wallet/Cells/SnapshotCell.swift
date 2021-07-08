@@ -1,50 +1,95 @@
 import UIKit
+import MixinServices
 
-class SnapshotCell: UITableViewCell {
+protocol SnapshotCellDelegate: AnyObject {
+    func walletSnapshotCellDidSelectIcon(_ cell: SnapshotCell)
+}
 
-    static let cellIdentifier = "cell_identifier_snapshot"
-    static let cellHeight: CGFloat = 60
-
-    @IBOutlet weak var amountLabel: UILabel!
-    @IBOutlet weak var timeLabel: UILabel!
-    @IBOutlet weak var detailLabel: UILabel!
+class SnapshotCell: ModernSelectedBackgroundCell {
     
-    func render(snapshot: SnapshotItem) {
-        timeLabel.text = DateFormatter.MMMddHHmm.string(from: snapshot.createdAt.toUTCDate())
-        amountLabel.text = CurrencyFormatter.localizedString(from: snapshot.amount, format: .precision, sign: .always, symbol: .custom(snapshot.assetSymbol))
+    @IBOutlet weak var pendingDepositProgressView: UIView!
+    @IBOutlet weak var iconImageView: AvatarImageView!
+    @IBOutlet weak var titleLabel: UILabel!
+    @IBOutlet weak var amountLabel: InsetLabel!
+    @IBOutlet weak var symbolLabel: UILabel!
+    
+    @IBOutlet weak var pendingDepositProgressConstraint: NSLayoutConstraint!
+    
+    weak var delegate: SnapshotCellDelegate?
+    
+    override func awakeFromNib() {
+        super.awakeFromNib()
+        amountLabel.contentInset = UIEdgeInsets(top: 2, left: 0, bottom: 0, right: 0)
+        amountLabel.setFont(scaledFor: .dinCondensedBold(ofSize: 19),
+                            adjustForContentSize: true)
+    }
+    
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        iconImageView.prepareForReuse()
+    }
+    
+    @IBAction func selectIconAction(_ sender: Any) {
+        delegate?.walletSnapshotCellDidSelectIcon(self)
+    }
+    
+    func render(snapshot: SnapshotItem, asset: AssetItem? = nil) {
+        if snapshot.type == SnapshotType.transfer.rawValue, let iconUrl = snapshot.opponentUserAvatarUrl, let userId = snapshot.opponentUserId, let name = snapshot.opponentUserFullName {
+            iconImageView.setImage(with: iconUrl, userId: userId, name: name)
+        } else {
+            iconImageView.image = UIImage(named: "Wallet/ic_transaction_external")
+        }
         switch snapshot.type {
         case SnapshotType.deposit.rawValue:
             amountLabel.textColor = .walletGreen
-            if let hash = snapshot.transactionHash {
-                detailLabel.text = hash.toSimpleKey()
-            } else {
-                detailLabel.text = nil
-            }
+            titleLabel.text = Localized.TRANSACTION_TYPE_DEPOSIT
         case SnapshotType.transfer.rawValue:
             if snapshot.amount.hasMinusPrefix {
                 amountLabel.textColor = .walletRed
-                detailLabel.text = Localized.WALLET_SNAPSHOT_TO(fullName: snapshot.opponentUserFullName ?? "")
             } else {
                 amountLabel.textColor = .walletGreen
-                detailLabel.text = Localized.WALLET_SNAPSHOT_FROM(fullName: snapshot.opponentUserFullName ?? "")
             }
-        case SnapshotType.withdrawal.rawValue, SnapshotType.fee.rawValue:
-            amountLabel.textColor = .walletRed
-            if let receiver = snapshot.receiver, !receiver.isEmpty {
-                detailLabel.text = receiver.toSimpleKey()
+            titleLabel.text = Localized.TRANSACTION_TYPE_TRANSFER
+        case SnapshotType.raw.rawValue:
+            if snapshot.amount.hasMinusPrefix {
+                amountLabel.textColor = .walletRed
             } else {
-                detailLabel.text = nil
+                amountLabel.textColor = .walletGreen
             }
+            titleLabel.text = R.string.localizable.transaction_type_raw()
+        case SnapshotType.withdrawal.rawValue:
+            amountLabel.textColor = .walletRed
+            titleLabel.text = Localized.TRANSACTION_TYPE_WITHDRAWAL
+        case SnapshotType.fee.rawValue:
+            amountLabel.textColor = .walletRed
+            titleLabel.text = Localized.TRANSACTION_TYPE_FEE
         case SnapshotType.rebate.rawValue:
             amountLabel.textColor = .walletGreen
-            if let receiver = snapshot.receiver, !receiver.isEmpty {
-                detailLabel.text = receiver.toSimpleKey()
+            titleLabel.text = Localized.TRANSACTION_TYPE_REBATE
+        case SnapshotType.pendingDeposit.rawValue:
+            amountLabel.textColor = .walletGray
+            if let finished = snapshot.confirmations, let total = asset?.confirmations {
+                titleLabel.text = Localized.PENDING_DEPOSIT_CONFIRMATION(numerator: finished,
+                                                                         denominator: total)
             } else {
-                detailLabel.text = nil
+                titleLabel.text = nil
             }
         default:
             break
         }
+        amountLabel.text = CurrencyFormatter.localizedString(from: snapshot.amount, format: .precision, sign: .always)
+        symbolLabel.text = asset?.symbol ?? snapshot.assetSymbol
+        if snapshot.type == SnapshotType.pendingDeposit.rawValue, let finished = snapshot.confirmations, let total = asset?.confirmations {
+            pendingDepositProgressView.isHidden = false
+            let multiplier = CGFloat(finished) / CGFloat(total)
+            if abs(pendingDepositProgressConstraint.multiplier - multiplier) > 0.1 {
+                NSLayoutConstraint.deactivate([pendingDepositProgressConstraint])
+                pendingDepositProgressConstraint = pendingDepositProgressView.widthAnchor.constraint(equalTo: contentView.widthAnchor, multiplier: multiplier)
+                NSLayoutConstraint.activate([pendingDepositProgressConstraint])
+            }
+        } else {
+            pendingDepositProgressView.isHidden = true
+        }
     }
-
+    
 }

@@ -4,6 +4,8 @@
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -15,7 +17,7 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.7.3</string>
+	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -26,7 +28,7 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>141</string>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>FirebaseAppDelegateProxyEnabled</key>
 	<false/>
 	<key>ITSAppUsesNonExemptEncryption</key>
@@ -52,6 +54,21 @@
 		<string>tmall</string>
 		<string>zhihu</string>
 		<string>alipay</string>
+		<string>foxone</string>
+		<string>exin</string>
+		<string>tbopen</string>
+		<string>openapp.jdmobile</string>
+		<string>pinduoduo</string>
+		<string>vipshop</string>
+		<string>dianping</string>
+		<string>imeituan</string>
+		<string>kaola</string>
+		<string>suning</string>
+		<string>yanxuan</string>
+		<string>taobaotravel</string>
+		<string>mogujie</string>
+		<string>iosamap</string>
+		<string>comgooglemaps</string>
 	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
@@ -61,18 +78,26 @@
 		<true/>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>Allow Mixin to use your camera</string>
+	<string>Mixin uses the camera to set profile photo, and send photo to your contact in chat.</string>
 	<key>NSContactsUsageDescription</key>
-	<string>Allow Mixin to access your contacts</string>
+	<string>Mixin syncs your address book to Mixin servers to help you connect with other Mixin users.</string>
 	<key>NSFaceIDUsageDescription</key>
-	<string>Allow Mixin to authorize payment via Face ID</string>
+	<string>Mixin uses Face ID to authorize payment</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Mixin uses location to share with your contacts.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Allow Mixin to access your microphone</string>
+	<string>Mixin uses your microphone to record voice messages to share with your contacts.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Allow Mixin to access your photos</string>
+	<string>Mixin uses the photo library to set profile photo, and send photo to your contact in chat.</string>
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>INSendMessageIntent</string>
+	</array>
 	<key>UIBackgroundModes</key>
 	<array>
-		<string>fetch</string>
+		<string>audio</string>
+		<string>voip</string>
+		<string>remote-notification</string>
 	</array>
 	<key>UIFileSharingEnabled</key>
 	<false/>

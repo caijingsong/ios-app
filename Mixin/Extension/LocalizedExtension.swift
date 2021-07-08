@@ -1,10 +1,5 @@
 import UIKit
 
-public func LocalizedString(_ key: String, comment: String) -> String {
-    let localText = NSLocalizedString(key, comment: "")
-    return localText == key ? comment :  localText
-}
-
 extension UIButton {
 
     @IBInspectable
@@ -81,4 +76,23 @@ extension UINavigationItem {
         }
     }
     
+}
+
+extension SearchBoxView {
+
+    @IBInspectable
+    var local_placeholder: String? {
+        get {
+            return ""
+        }
+        set {
+            guard let text = newValue, !text.isEmpty else {
+                return
+            }
+            let localText = LocalizedString(text, comment: text)
+            if localText != text {
+                self.textField.placeholder = localText
+            }
+        }
+    }
 }

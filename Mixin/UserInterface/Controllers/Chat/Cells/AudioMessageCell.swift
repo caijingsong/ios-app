@@ -1,14 +1,34 @@
 import UIKit
+import MixinServices
 
-class AudioMessageCell: CardMessageCell, AttachmentLoadingMessageCell {
-    
-    @IBOutlet weak var operationButton: NetworkOperationButton!
-    @IBOutlet weak var playbackStateImageView: UIImageView!
-    @IBOutlet weak var waveformView: WaveformView!
-    @IBOutlet weak var highlightedWaveformView: WaveformView!
-    @IBOutlet weak var lengthLabel: UILabel!
+class AudioMessageCell: CardMessageCell<AudioMessageActionView, AudioMessageProgressView>, AttachmentLoadingMessageCell, AudioCell {
     
     weak var attachmentLoadingDelegate: AttachmentLoadingMessageCellDelegate?
+    weak var audioMessagePlayingManager: AudioMessagePlayingManager?
+    
+    var operationButton: NetworkOperationButton! {
+        leftView.operationButton
+    }
+    
+    var playbackStateWrapperView: UIView {
+        leftView.playbackStateWrapperView
+    }
+    
+    var playbackStateImageView: UIImageView {
+        leftView.playbackStateImageView
+    }
+    
+    var waveformView: WaveformView {
+        rightView.waveformView
+    }
+    
+    var highlightedWaveformView: WaveformView {
+        rightView.highlightedWaveformView
+    }
+    
+    var lengthLabel: UILabel {
+        rightView.lengthLabel
+    }
     
     private let waveformMaskView = UIView()
     private let waveformUpdateInterval: TimeInterval = 0.1
@@ -16,50 +36,51 @@ class AudioMessageCell: CardMessageCell, AttachmentLoadingMessageCell {
     private var timer: Timer?
     private var duration: Float64 = 0
     
-    var isPlaying = false {
+    var style: AudioCellStyle = .stopped {
         didSet {
-            guard isPlaying != oldValue else {
-                return
-            }
-            let image = isPlaying ? #imageLiteral(resourceName: "ic_file_cancel") : #imageLiteral(resourceName: "ic_play")
-            playbackStateImageView.image = image
-            if isPlaying {
-                MXNAudioPlayer.shared().addObserver(self)
+            timer?.invalidate()
+            timer = nil
+            switch style {
+            case .playing:
+                playbackStateImageView.image = R.image.ic_pause()
+                updateWaveformProgress()
                 timer = Timer(timeInterval: waveformUpdateInterval, repeats: true, block: { [weak self] (_) in
                     self?.updateWaveformProgress()
                 })
                 RunLoop.main.add(timer!, forMode: .common)
-            } else {
-                MXNAudioPlayer.shared().removeObserver(self)
+            case .stopped:
+                playbackStateImageView.image = R.image.ic_play()
                 waveformMaskView.frame = .zero
-                timer?.invalidate()
-                timer = nil
+            case .paused:
+                playbackStateImageView.image = R.image.ic_play()
+                updateWaveformProgress()
             }
         }
     }
-        
+    
     deinit {
         timer?.invalidate()
         timer = nil
+        if let messageId = viewModel?.message.messageId {
+            audioMessagePlayingManager?.unregister(cell: self, forMessageId: messageId)
+        }
     }
     
-    override var contentTopMargin: CGFloat {
-        return 10
-    }
-    
-    override func awakeFromNib() {
-        super.awakeFromNib()
+    override func prepare() {
+        super.prepare()
         waveformMaskView.backgroundColor = .black
         highlightedWaveformView.mask = waveformMaskView
     }
     
     override func prepareForReuse() {
         super.prepareForReuse()
-        isPlaying = false
+        style = .stopped
         waveformMaskView.frame = .zero
-        MXNAudioPlayer.shared().removeObserver(self)
         timer?.invalidate()
         timer = nil
+        if let messageId = viewModel?.message.messageId {
+            audioMessagePlayingManager?.unregister(cell: self, forMessageId: messageId)
+        }
     }
 
     override func render(viewModel: MessageViewModel) {
@@ -70,21 +91,48 @@ class AudioMessageCell: CardMessageCell, AttachmentLoadingMessageCell {
             highlightedWaveformView.waveform = viewModel.waveform
             updateOperationButtonStyle()
             operationButton.isHidden = viewModel.operationButtonIsHidden
-            playbackStateImageView.isHidden = viewModel.playbackStateIsHidden
+            playbackStateWrapperView.isHidden = viewModel.playbackStateIsHidden
             duration = Float64(viewModel.message.mediaDuration ?? 0)
-            let player = MXNAudioPlayer.shared()
-            if player.state == .playing, let mediaUrl = viewModel.message.mediaUrl, player.path.contains(mediaUrl) {
-                isPlaying = true
-            }
+            updateUnreadStyle()
         }
+        audioMessagePlayingManager?.register(cell: self, forMessageId: viewModel.message.messageId)
     }
     
     @IBAction func operationAction(_ sender: Any) {
         attachmentLoadingDelegate?.attachmentLoadingCellDidSelectNetworkOperation(self)
     }
     
+    func updateOperationButtonStyle() {
+        guard let viewModel = viewModel as? AudioMessageViewModel else {
+            return
+        }
+        operationButton.style = viewModel.operationButtonStyle
+        operationButton.isHidden = viewModel.operationButtonIsHidden
+        playbackStateWrapperView.isHidden = viewModel.playbackStateIsHidden
+    }
+    
+    func updateUnreadStyle() {
+        guard let viewModel = viewModel as? AudioMessageViewModel else {
+            return
+        }
+        if viewModel.isUnread {
+            waveformView.tintColor = .highlightedText
+            lengthLabel.textColor = .highlightedText
+        } else {
+            waveformView.tintColor = R.color.audio_waveform()!
+            lengthLabel.textColor = .accessoryText
+        }
+    }
+    
     private func updateWaveformProgress() {
-        let progress = MXNAudioPlayer.shared().currentTime * millisecondsPerSecond / (duration - waveformUpdateInterval * millisecondsPerSecond)
+        guard
+            let manager = audioMessagePlayingManager,
+            let player = manager.player,
+            manager.playingMessage?.messageId == viewModel?.message.messageId
+        else {
+            return
+        }
+        let progress = player.currentTime * millisecondsPerSecond / (duration - waveformUpdateInterval * millisecondsPerSecond)
         let oldWidth = waveformMaskView.frame.width
         let newWidth = highlightedWaveformView.frame.width * CGFloat(progress)
         if abs(oldWidth - newWidth) > 0.3 {
@@ -95,20 +143,4 @@ class AudioMessageCell: CardMessageCell, AttachmentLoadingMessageCell {
         }
     }
 
-}
-
-extension AudioMessageCell: MXNAudioPlayerObserver {
-    
-    func mxnAudioPlayer(_ player: MXNAudioPlayer, playbackStateDidChangeTo state: MXNAudioPlaybackState) {
-        if state == .stopped {
-            if Thread.isMainThread {
-                isPlaying = false
-            } else {
-                DispatchQueue.main.sync { [weak self] in
-                    self?.isPlaying = false
-                }
-            }
-        }
-    }
-    
 }

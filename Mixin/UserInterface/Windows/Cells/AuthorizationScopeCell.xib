@@ -1,63 +1,81 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<document type="com.apple.InterfaceBuilder3.CocoaTouch.XIB" version="3.0" toolsVersion="13771" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES">
-    <device id="retina4_7" orientation="portrait">
-        <adaptation id="fullscreen"/>
-    </device>
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.XIB" version="3.0" toolsVersion="15702" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES">
+    <device id="retina4_7" orientation="portrait" appearance="dark"/>
     <dependencies>
         <deployment identifier="iOS"/>
-        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="13772"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="15704"/>
+        <capability name="Named colors" minToolsVersion="9.0"/>
         <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
     </dependencies>
     <objects>
         <placeholder placeholderIdentifier="IBFilesOwner" id="-1" userLabel="File's Owner"/>
         <placeholder placeholderIdentifier="IBFirstResponder" id="-2" customClass="UIResponder"/>
         <tableViewCell clipsSubviews="YES" contentMode="scaleToFill" preservesSuperviewLayoutMargins="YES" selectionStyle="default" indentationWidth="10" id="9ff-tm-kfn" customClass="AuthorizationScopeCell" customModule="Mixin" customModuleProvider="target">
-            <rect key="frame" x="0.0" y="0.0" width="375" height="44"/>
+            <rect key="frame" x="0.0" y="0.0" width="375" height="62"/>
             <autoresizingMask key="autoresizingMask"/>
             <tableViewCellContentView key="contentView" opaque="NO" clipsSubviews="YES" multipleTouchEnabled="YES" contentMode="center" preservesSuperviewLayoutMargins="YES" insetsLayoutMarginsFromSafeArea="NO" tableViewCell="9ff-tm-kfn" id="4sW-gF-15f">
-                <rect key="frame" x="0.0" y="0.0" width="375" height="43.5"/>
+                <rect key="frame" x="0.0" y="0.0" width="375" height="62"/>
                 <autoresizingMask key="autoresizingMask"/>
                 <subviews>
-                    <imageView userInteractionEnabled="NO" contentMode="scaleToFill" horizontalHuggingPriority="750" verticalHuggingPriority="750" image="ic_member_selected" translatesAutoresizingMaskIntoConstraints="NO" id="gRb-Al-S1d">
-                        <rect key="frame" x="15" y="11" width="20" height="20"/>
-                    </imageView>
+                    <view contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="zeM-fe-8RW" customClass="CheckmarkView" customModule="Mixin" customModuleProvider="target">
+                        <rect key="frame" x="8" y="23" width="16" height="16"/>
+                        <color key="backgroundColor" white="0.0" alpha="0.0" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+                        <constraints>
+                            <constraint firstAttribute="height" constant="16" id="9vU-Ju-fSM"/>
+                            <constraint firstAttribute="width" constant="16" id="s9A-Et-K8d"/>
+                        </constraints>
+                    </view>
                     <stackView opaque="NO" contentMode="scaleToFill" axis="vertical" spacing="4" translatesAutoresizingMaskIntoConstraints="NO" id="Q1f-CZ-nJG">
-                        <rect key="frame" x="50" y="0.5" width="112" height="41.5"/>
+                        <rect key="frame" x="40" y="10" width="319" height="42"/>
                         <subviews>
-                            <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="Phone number" textAlignment="natural" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="Cw4-vf-0RO">
-                                <rect key="frame" x="0.0" y="0.0" width="112" height="20.5"/>
-                                <fontDescription key="fontDescription" type="system" pointSize="17"/>
-                                <nil key="textColor"/>
+                            <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="750" text="Phone number" textAlignment="natural" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontForContentSizeCategory="YES" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="Cw4-vf-0RO">
+                                <rect key="frame" x="0.0" y="0.0" width="319" height="19.5"/>
+                                <fontDescription key="fontDescription" style="UICTFontTextStyleCallout"/>
+                                <color key="textColor" name="text"/>
                                 <nil key="highlightedColor"/>
                                 <userDefinedRuntimeAttributes>
                                     <userDefinedRuntimeAttribute type="string" keyPath="local_title" value="auth_permission_phone"/>
                                 </userDefinedRuntimeAttributes>
                             </label>
-                            <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="+8613811821337" textAlignment="natural" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="Ke7-iE-QeS">
-                                <rect key="frame" x="0.0" y="24.5" width="112" height="17"/>
-                                <fontDescription key="fontDescription" type="system" weight="light" pointSize="14"/>
-                                <color key="textColor" white="0.66666666666666663" alpha="1" colorSpace="calibratedWhite"/>
+                            <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="+8613811821337" textAlignment="natural" lineBreakMode="tailTruncation" numberOfLines="0" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="Ke7-iE-QeS">
+                                <rect key="frame" x="0.0" y="23.5" width="319" height="18.5"/>
+                                <fontDescription key="fontDescription" type="system" pointSize="14"/>
+                                <color key="textColor" name="text_accessory"/>
                                 <nil key="highlightedColor"/>
+                                <userDefinedRuntimeAttributes>
+                                    <userDefinedRuntimeAttribute type="string" keyPath="dynamicTextSize" value="regular14"/>
+                                </userDefinedRuntimeAttributes>
                             </label>
                         </subviews>
                     </stackView>
                 </subviews>
                 <constraints>
-                    <constraint firstItem="gRb-Al-S1d" firstAttribute="centerY" secondItem="4sW-gF-15f" secondAttribute="centerY" id="Avm-EI-6QU"/>
-                    <constraint firstItem="gRb-Al-S1d" firstAttribute="leading" secondItem="4sW-gF-15f" secondAttribute="leading" constant="15" id="Znj-rG-HI1"/>
-                    <constraint firstItem="Q1f-CZ-nJG" firstAttribute="centerY" secondItem="gRb-Al-S1d" secondAttribute="centerY" id="n1q-yZ-Jjy"/>
-                    <constraint firstItem="Q1f-CZ-nJG" firstAttribute="leading" secondItem="gRb-Al-S1d" secondAttribute="trailing" constant="15" id="soB-2Y-QYu"/>
+                    <constraint firstAttribute="bottom" secondItem="Q1f-CZ-nJG" secondAttribute="bottom" constant="10" id="3qI-vv-C0E"/>
+                    <constraint firstItem="Q1f-CZ-nJG" firstAttribute="leading" secondItem="zeM-fe-8RW" secondAttribute="trailing" constant="16" id="8dX-dy-7WX"/>
+                    <constraint firstItem="Q1f-CZ-nJG" firstAttribute="top" secondItem="4sW-gF-15f" secondAttribute="top" constant="10" id="ElU-hK-Dvd"/>
+                    <constraint firstItem="zeM-fe-8RW" firstAttribute="centerY" secondItem="4sW-gF-15f" secondAttribute="centerY" id="F62-Tw-PFv"/>
+                    <constraint firstAttribute="trailing" secondItem="Q1f-CZ-nJG" secondAttribute="trailing" constant="16" id="npR-oR-bbM"/>
+                    <constraint firstItem="zeM-fe-8RW" firstAttribute="leading" secondItem="4sW-gF-15f" secondAttribute="leading" constant="8" id="sDH-1n-ZyN"/>
                 </constraints>
             </tableViewCellContentView>
+            <color key="backgroundColor" name="background"/>
             <connections>
+                <outlet property="checkmarkView" destination="zeM-fe-8RW" id="Uk5-ax-jIs"/>
                 <outlet property="descLabel" destination="Ke7-iE-QeS" id="6nm-ur-Cfr"/>
                 <outlet property="nameLabel" destination="Cw4-vf-0RO" id="aKN-zz-qAe"/>
-                <outlet property="selectionImageView" destination="gRb-Al-S1d" id="rHv-4d-8Il"/>
             </connections>
             <point key="canvasLocation" x="-50" y="89"/>
         </tableViewCell>
     </objects>
     <resources>
-        <image name="ic_member_selected" width="20" height="20"/>
+        <namedColor name="background">
+            <color red="1" green="1" blue="1" alpha="1" colorSpace="custom" customColorSpace="displayP3"/>
+        </namedColor>
+        <namedColor name="text">
+            <color red="0.20000000000000001" green="0.20000000000000001" blue="0.20000000000000001" alpha="1" colorSpace="custom" customColorSpace="displayP3"/>
+        </namedColor>
+        <namedColor name="text_accessory">
+            <color red="0.72156862745098038" green="0.74117647058823533" blue="0.7803921568627451" alpha="1" colorSpace="custom" customColorSpace="displayP3"/>
+        </namedColor>
     </resources>
 </document>

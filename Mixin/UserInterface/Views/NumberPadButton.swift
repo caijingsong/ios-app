@@ -2,35 +2,44 @@ import UIKit
 
 class NumberPadButton: UIControl, XibDesignable {
     
-    static let normalBackgroundImage = UIColor.white.image
-    static let highlightedBackgroundImage = UIColor(rgbValue: 0xa7b9c8).image
-    
-    @IBOutlet weak var button: UIButton!
+    @IBOutlet weak var button: HighlightableButton!
     
     @IBInspectable var number: Int = 0 {
         didSet {
             button.setTitle(String(number), for: .normal)
         }
     }
+	
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
     
     required init?(coder aDecoder: NSCoder) {
         super.init(coder: aDecoder)
-        prepare()
+        self.setup()
     }
     
     override init(frame: CGRect) {
         super.init(frame: frame)
-        prepare()
+        self.setup()
+    }
+	
+    private func setup() {
+        loadXib()
+        updateButtonBackground()
+        NotificationCenter.default.addObserver(self, selector: #selector(updateButtonBackground), name: UIScreen.capturedDidChangeNotification, object: nil)
     }
     
     @IBAction func touchUpInsideAction(_ sender: Any) {
         sendActions(for: .touchUpInside)
     }
     
-    private func prepare() {
-        loadXib()
-        button.setBackgroundImage(NumberPadButton.normalBackgroundImage, for: .normal)
-        button.setBackgroundImage(NumberPadButton.highlightedBackgroundImage, for: .highlighted)
+    @objc private func updateButtonBackground() {
+        if UIScreen.main.isCaptured {
+            button.highlightedColor = R.color.keyboard_button_background()!
+        }else{
+            button.highlightedColor = R.color.keyboard_button_highlighted()!
+        }
     }
-
+    
 }

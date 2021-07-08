@@ -1,45 +1,34 @@
 import UIKit
+import MixinServices
 
-class UsernameViewController: LoginViewController {
-
-    @IBOutlet weak var usernameTextField: UITextField!
-
-    private var username: String {
-        return usernameTextField.text ?? ""
-    }
-
+class UsernameViewController: LoginInfoInputViewController {
+    
     override func viewDidLoad() {
         super.viewDidLoad()
-        usernameTextField.text = defaultUsername()
-        usernameTextField.becomeFirstResponder()
-        updateContinueButtonStatusAction(self)
-    }
-    
-    @IBAction func updateContinueButtonStatusAction(_ sender: Any) {
-        continueButton.isEnabled = !username.isEmpty
+        titleLabel.text = R.string.localizable.navigation_title_enter_name()
+        textField.text = makeDefaultUsername()
+        editingChangedAction(self)
     }
     
     override func continueAction(_ sender: Any) {
         continueButton.isBusy = true
-        AccountAPI.shared.update(fullName: username) { [weak self] (account) in
+        AccountAPI.update(fullName: trimmedText) { [weak self] (account) in
             guard let weakSelf = self else {
                 return
             }
             weakSelf.continueButton.isBusy = false
             switch account {
             case let .success(account):
-                AccountAPI.shared.account = account
-                DispatchQueue.global().async {
-                    UserDAO.shared.updateAccount(account: account)
-                }
-                AppDelegate.current.window?.rootViewController = makeInitialViewController()
-            case .failure:
-                break
+                LoginManager.shared.setAccount(account)
+                AppDelegate.current.mainWindow.rootViewController = makeInitialViewController()
+            case let .failure(error):
+                reporter.report(error: error)
+                showAutoHiddenHud(style: .error, text: error.localizedDescription)
             }
         }
     }
-
-    private func defaultUsername() -> String? {
+    
+    private func makeDefaultUsername() -> String? {
         let name = UIDevice.current.name
         let deviceName: String
         if name.range(of: "iPhone") != nil {
@@ -70,10 +59,6 @@ class UsernameViewController: LoginViewController {
             }
         }
         return nil
-    }
-    
-    static func instance() -> UsernameViewController {
-        return Storyboard.login.instantiateViewController(withIdentifier: "Username") as! UsernameViewController
     }
     
 }

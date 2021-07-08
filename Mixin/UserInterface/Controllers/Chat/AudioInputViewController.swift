@@ -1,8 +1,11 @@
 import UIKit
 import AVFoundation
+import MixinServices
 
-class AudioInputViewController: UIViewController {
-
+class AudioInputViewController: UIViewController, ConversationInputAccessible {
+    
+    static let maxRecordDuration: TimeInterval = 60
+    
     @IBOutlet weak var recordingIndicatorView: UIView!
     @IBOutlet weak var recordingRedDotView: UIView!
     @IBOutlet weak var timeLabel: UILabel!
@@ -11,44 +14,13 @@ class AudioInputViewController: UIViewController {
     @IBOutlet weak var recordImageView: UIImageView!
     @IBOutlet weak var lockView: RecorderLockView!
     @IBOutlet weak var lockedActionsView: UIView!
-
+    
     @IBOutlet weak var slideViewCenterXConstraint: NSLayoutConstraint!
     @IBOutlet weak var lockViewVisibleConstraint: NSLayoutConstraint!
     @IBOutlet weak var lockViewHiddenConstraint: NSLayoutConstraint!
     
     @IBOutlet var recordGestureRecognizer: UILongPressGestureRecognizer!
     @IBOutlet var tapGestureRecognizer: UITapGestureRecognizer!
-    
-    static let maxRecordDuration: TimeInterval = 60
-
-    private let animationDuration: TimeInterval = 0.2
-    private let updateTimeLabelInterval: TimeInterval = 1
-    private let slideToCancelDistance: CGFloat = 80
-    private let longPressHintVisibleDuration: TimeInterval = 2
-    private let longPressHintRightMargin: CGFloat = 13
-    private let lockDistance: CGFloat = 100
-    
-    private(set) var isShowingLongPressHint = false
-    
-    private var recordGestureBeganPoint = CGPoint.zero
-    private var recordDurationTimer: Timer?
-    private var recordDuration: TimeInterval = 0
-    private var recorder: MXNAudioRecorder?
-    private var isShowingLockView = false
-    private var isLocked = false {
-        didSet {
-            lockView.isLocked = isLocked
-            lockedActionsView.isHidden = !isLocked
-        }
-    }
-    private var conversationViewController: ConversationViewController? {
-        return parent as? ConversationViewController
-    }
-    private var conversationDataSource: ConversationDataSource? {
-        return conversationViewController?.dataSource
-    }
-    
-    private lazy var longPressHintView = RecorderLongPressHintView()
     
     var isRecording: Bool {
         if let recorder = recorder {
@@ -58,14 +30,49 @@ class AudioInputViewController: UIViewController {
         }
     }
     
+    private let animationDuration: TimeInterval = 0.2
+    private let updateTimeLabelInterval: TimeInterval = 1
+    private let slideToCancelDistance: CGFloat = 80
+    private let longPressHintVisibleDuration: TimeInterval = 2
+    private let longPressHintRightMargin: CGFloat = 10
+    private let lockDistance: CGFloat = 100
+    private let feedback = UIImpactFeedbackGenerator(style: .medium)
+    
+    private(set) var isShowingLongPressHint = false
+    
+    private var recordGestureBeganPoint = CGPoint.zero
+    private var recordDuration: TimeInterval = 0
+    private var recorder: OggOpusRecorder?
+    private var displayAwakeningToken: DisplayAwakener.Token?
+    private var isShowingLockView = false
+    private var isLocked = false {
+        didSet {
+            lockView.isLocked = isLocked
+            lockedActionsView.isHidden = !isLocked
+        }
+    }
+    
+    private weak var recordDurationTimer: Timer?
+    
+    private lazy var longPressHintView = R.nib.recorderLongPressHintView(owner: nil)!
+    
+    deinit {
+        recorder?.cancel(for: .userInitiated)
+        if let token = displayAwakeningToken {
+            DisplayAwakener.shared.release(token: token)
+        }
+        NotificationCenter.default.removeObserver(self)
+    }
+    
     override func viewDidLoad() {
         super.viewDidLoad()
         recordGestureRecognizer.delegate = self
+        NotificationCenter.default.addObserver(self, selector: #selector(cancelAction(_:)), name: CallService.willStartCallNotification, object: nil)
     }
     
     @IBAction func tapAction(_ sender: Any) {
         if !isShowingLongPressHint {
-            animateShowLongPressHintAndScheduleAutoHiding()
+            flashLongPressHint()
         }
     }
     
@@ -77,10 +84,8 @@ class AudioInputViewController: UIViewController {
         case .began:
             isLocked = false
             lockView.progress = 0
-            if isShowingLongPressHint {
-                animateHideLongPressHint()
-            }
-            recordImageView.image = #imageLiteral(resourceName: "ic_chat_microphone_highlighted")
+            hideLongPressHint()
+            recordImageView.tintColor = .theme
             startRecordingIfGranted()
             recordGestureBeganPoint = recordGestureRecognizer.location(in: view)
             slideToCancelContentView.alpha = 1
@@ -111,15 +116,19 @@ class AudioInputViewController: UIViewController {
                 finishAction(sender)
             }
         case .cancelled:
-            cancelAction(sender)
+            if !isLocked {
+                cancelAction(sender)
+            }
         case .possible, .failed:
+            break
+        @unknown default:
             break
         }
     }
     
     @IBAction func cancelAction(_ sender: Any) {
         layoutForStopping()
-        recorder?.cancel()
+        recorder?.cancel(for: .userInitiated)
         animateHideLockView()
     }
     
@@ -129,12 +138,11 @@ class AudioInputViewController: UIViewController {
         animateHideLockView()
     }
     
-    @objc func updateTimeLabelAction(_ sender: Any) {
-        recordDuration += 1
-        setTimeLabelValue(recordDuration)
-    }
-    
-    @objc func animateHideLongPressHint() {
+    @discardableResult @objc
+    func hideLongPressHint() -> Bool {
+        guard isShowingLongPressHint else {
+            return false
+        }
         UIView.animate(withDuration: animationDuration, animations: {
             self.longPressHintView.alpha = 0
         }) { (_) in
@@ -142,24 +150,26 @@ class AudioInputViewController: UIViewController {
             self.longPressHintView.alpha = 1
             self.isShowingLongPressHint = false
         }
+        return true
     }
     
-    func animateShowLongPressHintAndScheduleAutoHiding() {
+    func flashLongPressHint() {
         isShowingLongPressHint = true
-        NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(animateHideLongPressHint), object: nil)
-        perform(#selector(animateHideLongPressHint), with: nil, afterDelay: longPressHintVisibleDuration)
+        NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(hideLongPressHint), object: nil)
+        perform(#selector(hideLongPressHint), with: nil, afterDelay: longPressHintVisibleDuration)
         longPressHintView.alpha = 0
-        longPressHintView.frame.origin = CGPoint(x: view.bounds.maxX - longPressHintView.frame.width - longPressHintRightMargin,
-                                                 y: view.bounds.minY - longPressHintView.frame.height)
-        longPressHintView.autoresizingMask = [.flexibleLeftMargin]
         view.addSubview(longPressHintView)
+        longPressHintView.snp.makeConstraints { (make) in
+            make.right.equalToSuperview().offset(-longPressHintRightMargin)
+            make.bottom.equalTo(view.snp.top)
+        }
         UIView.animate(withDuration: animationDuration, animations: {
             self.longPressHintView.alpha = 1
         })
     }
     
     func cancelIfRecording() {
-        guard let recorder = recorder, recorder.isRecording else {
+        guard isRecording else {
             return
         }
         cancelAction(self)
@@ -172,7 +182,61 @@ extension AudioInputViewController: UIGestureRecognizerDelegate {
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         return recorder == nil
     }
+    
+}
 
+extension AudioInputViewController: OggOpusRecorderDelegate {
+    
+    func oggOpusRecorderIsWaitingForActivation(_ recorder: OggOpusRecorder) {
+        
+    }
+    
+    func oggOpusRecorderDidStartRecording(_ recorder: OggOpusRecorder) {
+        let timer = Timer(timeInterval: updateTimeLabelInterval, repeats: true) { [weak self] (_) in
+            self?.updateTimeLabel()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        recordDurationTimer = timer
+        startRedDotAnimation()
+    }
+    
+    func oggOpusRecorder(_ recorder: OggOpusRecorder, didCancelRecordingForReason reason: OggOpusRecorder.CancelledReason, userInfo: [String : Any]?) {
+        resetTimerAndRecorder()
+        layoutForStopping()
+        stopRedDotAnimation()
+        if reason != .userInitiated {
+            var userInfo = userInfo ?? [:]
+            userInfo["reason"] = reason.rawValue
+            Logger.write(errorMsg: "[OggOpusRecorderDidCancelRecording]...reason:\(reason.rawValue)")
+            reporter.report(event: .cancelAudioRecording, userInfo: userInfo)
+        }
+    }
+    
+    func oggOpusRecorder(_ recorder: OggOpusRecorder, didFailRecordingWithError error: Error) {
+        resetTimerAndRecorder()
+        layoutForStopping()
+        stopRedDotAnimation()
+        reporter.report(error: error)
+        Logger.write(error: error)
+    }
+    
+    func oggOpusRecorder(_ recorder: OggOpusRecorder, didFinishRecordingWithMetadata metadata: AudioMetadata) {
+        resetTimerAndRecorder()
+        layoutForStopping()
+        stopRedDotAnimation()
+        let url = URL(fileURLWithPath: recorder.path)
+        if Double(metadata.duration) > millisecondsPerSecond {
+            conversationInputViewController?.sendAudio(url: url, metadata: metadata)
+        } else {
+            try? FileManager.default.removeItem(at: url)
+            flashLongPressHint()
+        }
+    }
+    
+    func oggOpusRecorderDidDetectAudioSessionInterruptionEnd(_ recorder: OggOpusRecorder) {
+        Logger.write(errorMsg: "[OggOpusRecorderDidCancelRecording]...detect interruption end")
+    }
+    
 }
 
 extension AudioInputViewController {
@@ -182,69 +246,60 @@ extension AudioInputViewController {
         case .denied:
             alertSettings(Localized.PERMISSION_DENIED_MICROPHONE)
         case .granted:
-            startRecording()
+            if CallService.shared.hasCall {
+                alert(R.string.localizable.chat_voice_record_on_call())
+            } else {
+                startRecording()
+            }
         case .undetermined:
             AVAudioSession.sharedInstance().requestRecordPermission({ (_) in })
+        @unknown default:
+            alertSettings(Localized.PERMISSION_DENIED_MICROPHONE)
         }
     }
     
     private func startRecording() {
+        feedback.prepare()
         layoutForRecording()
         recordDuration = 0
         setTimeLabelValue(0)
         let tempUrl = URL.createTempUrl(fileExtension: ExtensionName.ogg.rawValue)
         do {
-            recorder = try MXNAudioRecorder(path: tempUrl.path)
-            recorder!.record(forDuration: AudioInputViewController.maxRecordDuration, progress: { (progress) in
-                switch progress {
-                case .waitingForActivation:
-                    break
-                case .started:
-                    let timer = Timer(timeInterval: self.updateTimeLabelInterval,
-                                      target: self,
-                                      selector: #selector(AudioInputViewController.updateTimeLabelAction(_:)),
-                                      userInfo: nil,
-                                      repeats: true)
-                    RunLoop.main.add(timer, forMode: .common)
-                    self.recordDurationTimer = timer
-                    self.startRedDotAnimation()
-                case .interrupted:
-                    self.recorder?.cancel()
-                }
-            }) { (completion, metadata, error) in
-                self.recordDurationTimer?.invalidate()
-                self.recordDurationTimer = nil
-                switch completion {
-                case .failed:
-                    break
-                case .finished:
-                    self.layoutForStopping()
-                    if let duration = metadata?.duration, Double(duration) > millisecondsPerSecond {
-                        self.conversationDataSource?.sendMessage(type: .SIGNAL_AUDIO, value: (tempUrl, metadata))
-                    } else {
-                        try? FileManager.default.removeItem(at: tempUrl)
-                        self.animateShowLongPressHintAndScheduleAutoHiding()
-                    }
-                case .cancelled:
-                    break
-                }
-                self.recorder = nil
+            let recorder = try OggOpusRecorder(path: tempUrl.path)
+            recorder.delegate = self
+            recorder.record(for: AudioInputViewController.maxRecordDuration)
+            self.recorder = recorder
+            self.feedback.impactOccurred()
+            if displayAwakeningToken == nil {
+                displayAwakeningToken = DisplayAwakener.shared.retain()
             }
         } catch {
-            UIApplication.trackError(String(reflecting: self), action: #function, userInfo: ["error": error])
+            reporter.report(error: error)
         }
     }
-
+    
+    private func updateTimeLabel() {
+        recordDuration += 1
+        setTimeLabelValue(recordDuration)
+    }
+    
+    private func resetTimerAndRecorder() {
+        if let token = displayAwakeningToken {
+            DisplayAwakener.shared.release(token: token)
+            displayAwakeningToken = nil
+        }
+        recordDurationTimer?.invalidate()
+        recordDurationTimer = nil
+        recorder = nil
+    }
+    
 }
 
 extension AudioInputViewController {
     
     private func layoutForRecording() {
-        if isShowingLongPressHint {
-            animateHideLongPressHint()
-        }
+        hideLongPressHint()
         animateShowLockView()
-        conversationViewController?.setInputWrapperHidden(true)
         slideViewCenterXConstraint.constant = 0
         preferredContentSize.width = UIScreen.main.bounds.width
         UIView.animate(withDuration: animationDuration) {
@@ -254,8 +309,7 @@ extension AudioInputViewController {
     }
     
     private func layoutForStopping() {
-        conversationViewController?.setInputWrapperHidden(false)
-        recordImageView.image = #imageLiteral(resourceName: "ic_chat_microphone")
+        recordImageView.tintColor = R.color.icon_tint()!
         if isLocked {
             slideToCancelView.alpha = 0
         } else {

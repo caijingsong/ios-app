@@ -1,11 +1,15 @@
 import UIKit
+import MixinServices
 
 class RecentStickersViewController: StickersViewController {
     
     init(index: Int) {
         super.init(nibName: nil, bundle: nil)
         self.index = index
-        NotificationCenter.default.addObserver(self, selector: #selector(stickerUsedAtDidUpdate(_:)), name: .StickerUsedAtDidUpdate, object: nil)
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(stickerUsedAtDidUpdate(_:)),
+                                               name: StickersViewController.stickerUsedAtDidUpdateNotification,
+                                               object: nil)
     }
     
     required init?(coder aDecoder: NSCoder) {
@@ -17,10 +21,10 @@ class RecentStickersViewController: StickersViewController {
     }
     
     @objc func stickerUsedAtDidUpdate(_ notification: Notification) {
-        guard let sticker = notification.object as? Sticker else {
+        guard let sticker = notification.userInfo?[StickersViewController.stickerUserInfoKey] as? StickerItem else {
             return
         }
-        if let index = stickers.index(where: { $0.stickerId == sticker.stickerId }) {
+        if let index = stickers.firstIndex(where: { $0.stickerId == sticker.stickerId }) {
             collectionView.performBatchUpdates({
                 stickers.remove(at: index)
                 stickers.insert(sticker, at: 0)

@@ -1,69 +1,62 @@
 import UIKit
+import MixinServices
 
-class PhotoRepresentableMessageViewModel: DetailInfoMessageViewModel {
-
-    static let contentWidth: CGFloat = 220
-    static let maxHeight: CGFloat = UIScreen.main.bounds.height / 2
-    static let shadowImage = UIImage(named: "ic_chat_shadow")
+class PhotoRepresentableMessageViewModel: ImageMessageViewModel {
     
-    let aspectRatio: CGSize
+    let contentRatio: CGSize
     
-    internal(set) var contentFrame = CGRect.zero
-    internal(set) var shadowImageOrigin = CGPoint.zero
-    internal(set) var operationButtonStyle = NetworkOperationButton.Style.finished(showPlayIcon: false)
-    internal(set) var layoutPosition = PhotoMessageCell.VerticalPositioningImageView.Position.center
+    var operationButtonStyle = NetworkOperationButton.Style.finished(showPlayIcon: false)
+    var layoutPosition = VerticalPositioningImageView.Position.center
+    var expandIconOrigin: CGPoint?
     
-    override var contentMargin: Margin {
-        return Margin(leading: 9, trailing: 5, top: 4, bottom: 6)
-    }
-    
-    private let contentSize: CGSize
-
-    override var statusNormalTintColor: UIColor {
-        return .white
-    }
-    
-    override init(message: MessageItem, style: Style, fits layoutWidth: CGFloat) {
-        let contentWidth = PhotoRepresentableMessageViewModel.contentWidth
-        let mediaWidth = abs(CGFloat(message.mediaWidth ?? 1))
-        var mediaHeight = abs(CGFloat(message.mediaHeight ?? 1))
-        if mediaHeight == 0 {
-            mediaHeight = 1
+    private var maxPresentationHeight: CGFloat {
+        return Queue.main.autoSync {
+            AppDelegate.current.mainWindow.bounds.height / 2
         }
-        let ratio = mediaWidth / mediaHeight
-        contentSize = CGSize(width: contentWidth,
-                             height: min(PhotoRepresentableMessageViewModel.maxHeight, contentWidth / ratio))
-        aspectRatio = CGSize(width: mediaWidth, height: mediaHeight)
-        super.init(message: message, style: style, fits: layoutWidth)
     }
     
-    override func didSetStyle() {
-        let backgroundImageMargin = MessageViewModel.backgroundImageMargin
-        let bottomSeparatorHeight = style.contains(.bottomSeparator) ? MessageViewModel.bottomSeparatorHeight : 0
-        let fullnameHeight = style.contains(.fullname) ? fullnameFrame.height : 0
-        let shadowImageSize = PhotoRepresentableMessageViewModel.shadowImage?.size ?? .zero
-        if style.contains(.received) {
-            contentFrame = CGRect(x: backgroundImageMargin.leading,
-                                  y: backgroundImageMargin.top,
-                                  width: contentSize.width,
-                                  height: contentSize.height)
-            shadowImageOrigin = CGPoint(x: contentFrame.maxX - shadowImageSize.width,
-                                        y: contentFrame.maxY - shadowImageSize.height)
-            if style.contains(.fullname) {
-                contentFrame.origin.y += fullnameHeight
-                shadowImageOrigin.y += fullnameHeight
-            }
+    override init(message: MessageItem) {
+        let mediaWidth = abs(CGFloat(message.mediaWidth ?? 0))
+        let mediaHeight = abs(CGFloat(message.mediaHeight ?? 0))
+        if mediaWidth < 1 || mediaHeight < 1 {
+            contentRatio = CGSize(width: 1, height: 1)
         } else {
-            contentFrame = CGRect(x: layoutWidth - backgroundImageMargin.leading - contentSize.width,
-                                  y: backgroundImageMargin.top,
-                                  width: contentSize.width,
-                                  height: contentSize.height)
-            shadowImageOrigin = CGPoint(x: contentFrame.maxX - shadowImageSize.width,
-                                        y: contentFrame.maxY - shadowImageSize.height)
+            contentRatio = CGSize(width: mediaWidth, height: mediaHeight)
         }
-        backgroundImageFrame = contentFrame
-        cellHeight = fullnameHeight + backgroundImageFrame.size.height + bottomSeparatorHeight
-        super.didSetStyle()
+        super.init(message: message)
     }
-
+    
+    override func layout(width: CGFloat, style: MessageViewModel.Style) {
+        let ratio = contentRatio.width / contentRatio.height
+        if quotedMessageViewModel == nil {
+            let photoHeight = min(maxPresentationHeight, round(Self.bubbleWidth / ratio))
+            photoFrame.size = CGSize(width: Self.bubbleWidth, height: photoHeight)
+        } else {
+            let photoWidth = Self.bubbleWidth - Self.quotingMessageMargin.horizontal
+            let photoHeight = min(maxPresentationHeight, round(photoWidth / ratio))
+            photoFrame.size = CGSize(width: photoWidth, height: photoHeight)
+        }
+        super.layout(width: width, style: style)
+        layoutTrailingInfoBackgroundFrame()
+        if imageWithRatioMaybeAnArticle(contentRatio) {
+            let margin: CGFloat
+            if style.contains(.received) {
+                margin = 9
+            } else {
+                margin = 16
+            }
+            let iconWidth = R.image.conversation.ic_message_expand()!.size.width
+            expandIconOrigin = CGPoint(x: backgroundImageFrame.maxX - iconWidth - margin,
+                                       y: photoFrame.origin.y + 8)
+        } else {
+            expandIconOrigin = nil
+        }
+    }
+    
+    func update(mediaUrl: String?, mediaSize: Int64?, mediaDuration: Int64?) {
+        message.mediaUrl = mediaUrl
+        message.mediaSize = mediaSize
+        message.mediaDuration = mediaDuration
+    }
+    
 }

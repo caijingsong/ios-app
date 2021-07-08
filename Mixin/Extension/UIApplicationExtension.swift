@@ -1,61 +1,63 @@
 import Foundation
-import Bugsnag
-import UserNotifications
-import Firebase
 import SafariServices
+import MixinServices
 
 extension UIApplication {
-
-    class func appDelegate() -> AppDelegate  {
-        return UIApplication.shared.delegate as! AppDelegate
+    
+    static var homeContainerViewController: HomeContainerViewController? {
+        return AppDelegate.current.mainWindow.rootViewController as? HomeContainerViewController
     }
-
-    static func rootNavigationController() -> UINavigationController? {
-        return UIApplication.shared.keyWindow?.rootViewController as? UINavigationController
+    
+    static var homeNavigationController: HomeNavigationController? {
+        return homeContainerViewController?.homeNavigationController
     }
-
+    
+    static var homeViewController: HomeViewController? {
+        return homeNavigationController?.viewControllers.first as? HomeViewController
+    }
+    
     static func currentActivity() -> UIViewController? {
-        return rootNavigationController()?.visibleViewController
+        return homeNavigationController?.visibleViewController
     }
 
     static func currentConversationId() -> String? {
-        guard let lastVC = rootNavigationController()?.viewControllers.last, let chatVC = lastVC as? ConversationViewController else {
+        return currentConversationViewController()?.conversationId
+    }
+
+    static func currentConversationViewController() -> ConversationViewController? {
+        guard UIApplication.shared.applicationState == .active else {
             return nil
         }
-        return chatVC.dataSource?.conversationId
+        guard let lastVC = homeNavigationController?.viewControllers.last else {
+            return nil
+        }
+        return lastVC as? ConversationViewController
     }
 
-    static func logEvent(eventName: String, parameters: [String: Any]? = nil) {
-        #if RELEASE
-        Analytics.logEvent(eventName, parameters: parameters as? [String: NSObject])
-        #endif
-    }
-
-    static func trackError(_ category: String, action: String, userInfo aUserInfo: [AnyHashable: Any]? = nil) {
-        #if RELEASE
-        if let aUserInfo = aUserInfo {
-            Bugsnag.notify(NSException(name: NSExceptionName(rawValue: category), reason: action, userInfo: nil)) {
-                (report) -> Void in
-                report.addMetadata(aUserInfo, toTabWithName: "Track")
-            }
+    static var isApplicationActive: Bool {
+        if Thread.isMainThread {
+            return UIApplication.shared.applicationState == .active
         } else {
-            Bugsnag.notify(NSException(name: NSExceptionName(rawValue: category), reason: action, userInfo: nil))
+            var isActive = false
+            DispatchQueue.main.sync {
+                isActive = UIApplication.shared.applicationState == .active
+            }
+            return isActive
         }
-        #endif
     }
 
-    static func getTrackUserInfo() -> [AnyHashable: Any] {
-        var userInfo = [AnyHashable: Any]()
-        userInfo["didLogin"] = AccountAPI.shared.didLogin
-        if let account = AccountAPI.shared.account {
-            userInfo["full_name"] = account.full_name
-            userInfo["identity_number"] = account.identity_number
+    var applicationStateString: String {
+        switch applicationState {
+        case .active:
+            return "active"
+        case .background:
+            return "background"
+        case .inactive:
+            return "inactive"
+        @unknown default:
+            return "unknown"
         }
-        userInfo["lastUpdateOrInstallTime"] = CommonUserDefault.shared.lastUpdateOrInstallTime
-        userInfo["clientTime"] = DateFormatter.filename.string(from: Date())
-        return userInfo
     }
-
 }
 
 extension UIApplication {
@@ -76,12 +78,53 @@ extension UIApplication {
 
     public func openURL(url: URL) {
         if ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
-            UIApplication.rootNavigationController()?.present(SFSafariViewController(url: url), animated: true, completion: nil)
+            UIApplication.homeNavigationController?.present(SFSafariViewController(url: url), animated: true, completion: nil)
         } else if UIApplication.shared.canOpenURL(url) {
             UIApplication.shared.open(url, options: [:], completionHandler: nil)
         } else {
-            Bugsnag.notify(NSException(name: NSExceptionName(rawValue: "Unrecognized URL"), reason: nil, userInfo: ["URL": url.absoluteString]))
+            let error = MixinError.unrecognizedUrl(url)
+            reporter.report(error: error)
         }
     }
+    
+}
+
+extension UIApplication {
+    
+    func setShortcutItemsEnabled(_ enabled: Bool) {
+        DispatchQueue.main.async {
+            if enabled {
+                UIApplication.shared.shortcutItems = [.wallet, .scanQrCode, .myQrCode]
+            } else {
+                UIApplication.shared.shortcutItems = nil
+            }
+        }
+    }
+    
+}
+
+extension UIApplicationShortcutItem {
+    
+    enum ItemType: String {
+        case scanQrCode
+        case wallet
+        case myQrCode
+    }
+    
+    static let scanQrCode = UIApplicationShortcutItem(type: ItemType.scanQrCode.rawValue,
+                                                      localizedTitle: R.string.localizable.scan_qr_code(),
+                                                      localizedSubtitle: nil,
+                                                      icon: .init(templateImageName: "ic_shortcut_scan_qr_code"),
+                                                      userInfo: nil)
+    static let wallet = UIApplicationShortcutItem(type: ItemType.wallet.rawValue,
+                                                  localizedTitle: R.string.localizable.wallet_title(),
+                                                  localizedSubtitle: nil,
+                                                  icon: .init(templateImageName: "ic_shortcut_wallet"),
+                                                  userInfo: nil)
+    static let myQrCode = UIApplicationShortcutItem(type: ItemType.myQrCode.rawValue,
+                                                    localizedTitle: R.string.localizable.myqrcode_title(),
+                                                    localizedSubtitle: nil,
+                                                    icon: .init(templateImageName: "ic_shortcut_my_qr_code"),
+                                                    userInfo: nil)
     
 }

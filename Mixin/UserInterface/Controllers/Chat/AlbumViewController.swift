@@ -4,11 +4,12 @@ import Photos
 class AlbumViewController: UITableViewController {
 
     private var allAlbums = [SmartAlbum]()
-    private var isFilterCustomSticker = false
+    private var showImageOnly = false
     
     override func didMove(toParent parent: UIViewController?) {
         super.didMove(toParent: parent)
-        container?.leftButton.setImage(#imageLiteral(resourceName: "ic_titlebar_close"), for: .normal)
+        container?.leftButton.tintColor = R.color.icon_tint()
+        container?.leftButton.setImage(R.image.ic_title_close(), for: .normal)
     }
     
     private func loadAlbums() {
@@ -35,10 +36,10 @@ class AlbumViewController: UITableViewController {
         }
     }
 
-    class func instance(isFilterCustomSticker: Bool = false) -> UIViewController {
-        let vc = Storyboard.photo.instantiateViewController(withIdentifier: "album") as! AlbumViewController
+    class func instance(showImageOnly: Bool = false) -> UIViewController {
+        let vc = R.storyboard.photo.album()!
         vc.loadAlbums()
-        vc.isFilterCustomSticker = isFilterCustomSticker
+        vc.showImageOnly = showImageOnly
         return ContainerViewController.instance(viewController: vc, title: Localized.IMAGE_PICKER_TITLE_ALBUMS)
     }
 
@@ -76,14 +77,14 @@ extension AlbumViewController {
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         let album = allAlbums[indexPath.row]
-        let pickerViewController = PickerViewController.instance(collection: album.assetCollection, isFilterCustomSticker: isFilterCustomSticker, scrollToOffset: CGPoint.zero)
+        let pickerViewController = PickerViewController.instance(collection: album.assetCollection, showImageOnly: showImageOnly, scrollToOffset: CGPoint.zero)
         let vc = ContainerViewController.instance(viewController: pickerViewController, title: album.title)
         navigationController?.pushViewController(vc, animated: true)
     }
 
 }
 
-class AlbumCell: UITableViewCell {
+class AlbumCell: ModernSelectedBackgroundCell {
 
     @IBOutlet weak var thumbImageView: UIImageView!
     @IBOutlet weak var titleLabel: UILabel!

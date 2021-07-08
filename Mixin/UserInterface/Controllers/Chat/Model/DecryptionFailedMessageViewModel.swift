@@ -2,15 +2,16 @@ import UIKit
 
 class DecryptionFailedMessageViewModel: TextMessageViewModel {
     
-    override var fixedLinks: [NSRange : URL]? {
-        let range = NSRange(location: (Localized.CHAT_DECRYPTION_FAILED_HINT(username: message.userFullName) as NSString).length,
-                            length: (Localized.CHAT_DECRYPTION_FAILED_LINK as NSString).length)
-        return [range: .aboutEncryption]
+    override var rawContent: String {
+        return Localized.CHAT_DECRYPTION_FAILED_HINT(username: message.userFullName ?? "")
+            + R.string.localizable.chat_sentence_learn_more()
     }
     
-    override init(message: MessageItem, style: Style, fits layoutWidth: CGFloat) {
-        message.content = Localized.CHAT_DECRYPTION_FAILED_HINT(username: message.userFullName) + Localized.CHAT_DECRYPTION_FAILED_LINK
-        super.init(message: message, style: style, fits: layoutWidth)
+    override func linkRanges(from string: String) -> [Link.Range] {
+        let location = (Localized.CHAT_DECRYPTION_FAILED_HINT(username: message.userFullName ?? "") as NSString).length
+        let length = (R.string.localizable.chat_sentence_learn_more() as NSString).length
+        let range = NSRange(location: location, length: length)
+        return [Link.Range(range: range, url: .aboutEncryption)]
     }
     
 }

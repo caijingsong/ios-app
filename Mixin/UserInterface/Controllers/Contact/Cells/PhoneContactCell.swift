@@ -1,17 +1,27 @@
 import UIKit
 
-class PhoneContactCell: UITableViewCell {
+protocol PhoneContactCellDelegate: AnyObject {
+    func phoneContactCellDidSelectInvite(_ cell: PhoneContactCell)
+}
 
+class PhoneContactCell: UITableViewCell {
+    
+    static let height: CGFloat = 80
+    
     @IBOutlet weak var nameLabel: UILabel!
     @IBOutlet weak var indexTitleLabel: UILabel!
-
-    static let cellIdentifier = "cell_identifier_phone_contact"
-    static let cellHeight: CGFloat = 60
-
+    @IBOutlet weak var phoneLabel: UILabel!
+    
+    weak var delegate: PhoneContactCellDelegate?
+    
     func render(contact: PhoneContact) {
         nameLabel.text = contact.fullName
         indexTitleLabel.text = contact.fullName[0]
+        phoneLabel.text = contact.phoneNumber
     }
+    
+    @IBAction func inviteAction(_ sender: Any) {
+        delegate?.phoneContactCellDidSelectInvite(self)
+    }
+    
 }
-
-

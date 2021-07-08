@@ -1,220 +1,268 @@
 import UIKit
+import MixinServices
 
-class AssetViewController: UITableViewController {
-
-    private var asset: AssetItem!
-    private var snapshots = [SnapshotItem]()
+class AssetViewController: UIViewController {
     
-    private lazy var noTransactionIndicator: UILabel = {
-        let label = UILabel()
-        label.textAlignment = .center
-        label.textColor = .lightGray
-        label.text = Localized.WALLET_NO_TRANSACTION
-        label.sizeToFit()
-        return label
-    }()
+    @IBOutlet weak var tableView: UITableView!
+    @IBOutlet weak var tableHeaderView: AssetTableHeaderView!
     
-    @IBOutlet weak var iconImageView: AvatarImageView!
-    @IBOutlet weak var blockchainImageView: CornerImageView!
-    @IBOutlet weak var balanceLabel: UILabel!
-    @IBOutlet weak var exchangeLabel: UILabel!
-    @IBOutlet weak var depositButton: StateResponsiveButton!
-
+    private enum ReuseId {
+        static let header = "header"
+    }
+    
+    private let loadMoreThreshold = 20
+    
+    private(set) var asset: AssetItem!
+    private var snapshotDataSource: SnapshotDataSource!
+    
+    private lazy var noTransactionFooterView = Bundle.main.loadNibNamed("NoTransactionFooterView", owner: self, options: nil)?.first as! UIView
+    private lazy var filterController = AssetFilterViewController.instance(showFilters: true)
+    
     override func viewDidLoad() {
         super.viewDidLoad()
-        tableView.register(UINib(nibName: "SnapshotCell", bundle: .main),
-                           forCellReuseIdentifier: SnapshotCell.cellIdentifier)
-        updateUI()
-        fetchAsset(showEmptyIndicatorIfEmpty: false)
-        NotificationCenter.default.addObserver(self, selector: #selector(assetsDidChange(_:)), name: .AssetsDidChange, object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(snapshotsDidChange(_:)), name: .SnapshotDidChange, object: nil)
+        view.layoutIfNeeded()
+        updateTableViewContentInset()
+        updateTableHeaderFooterView()
+        tableHeaderView.render(asset: asset)
+        tableHeaderView.sizeToFit()
+        tableView.register(R.nib.snapshotCell)
+        tableView.register(AssetHeaderView.self, forHeaderFooterViewReuseIdentifier: ReuseId.header)
+        tableView.dataSource = self
+        tableView.delegate = self
+        reloadAsset()
+        snapshotDataSource.onReload = { [weak self] in
+            guard let weakSelf = self else {
+                return
+            }
+            weakSelf.tableView.reloadData()
+            weakSelf.updateTableHeaderFooterView()
+        }
+        snapshotDataSource.reloadFromLocal()
+        NotificationCenter.default.addObserver(self, selector: #selector(assetsDidChange(_:)), name: AssetDAO.assetsDidChangeNotification, object: nil)
         ConcurrentJobQueue.shared.addJob(job: RefreshAssetsJob(assetId: asset.assetId))
-        ConcurrentJobQueue.shared.addJob(job: RefreshSnapshotsJob(key: .assetId(asset.assetId)))
     }
     
     deinit {
         NotificationCenter.default.removeObserver(self)
     }
     
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        updateTableViewContentInset()
+    }
+    
     @objc func assetsDidChange(_ notification: Notification) {
-        guard let assetId = notification.object as? String, assetId == asset.assetId else {
+        guard let id = notification.userInfo?[AssetDAO.UserInfoKey.assetId] as? String else {
             return
         }
-        fetchAsset(showEmptyIndicatorIfEmpty: false)
-    }
-    
-    @objc func snapshotsDidChange(_ notification: Notification) {
-        fetchAsset(showEmptyIndicatorIfEmpty: true)
-    }
-    
-    @IBAction func depositAction(_ sender: Any) {
-        guard !depositButton.isBusy else {
+        guard id == asset.assetId else {
             return
         }
-        navigationController?.pushViewController(DepositViewController.instance(asset: asset), animated: true)
+        reloadAsset()
     }
     
-    private func fetchAsset(showEmptyIndicatorIfEmpty: Bool) {
-        let assetId = asset.assetId
-        DispatchQueue.global().async { [weak self] in
-            if let asset = AssetDAO.shared.getAsset(assetId: assetId) {
-                self?.asset = asset
-                DispatchQueue.main.async {
-                    self?.updateUI()
-                }
-            }
-
-            let snapshots = SnapshotDAO.shared.getSnapshots(assetId: assetId)
-            let userIds: [String] = snapshots
-                .filter({ $0.opponentUserFullName == nil })
-                .compactMap({ $0.opponentId })
-            if userIds.count > 0 {
-                for userId in userIds {
-                    ConcurrentJobQueue.shared.addJob(job: RefreshUserJob(userIds: [userId]))
-                }
-            }
-            DispatchQueue.main.async {
-                guard let weakSelf = self else {
-                    return
-                }
-                weakSelf.snapshots = snapshots
-                UIView.performWithoutAnimation {
-                    weakSelf.tableView.reloadSections(IndexSet(integer: 1), with: .none)
-                }
-                if showEmptyIndicatorIfEmpty && snapshots.isEmpty {
-                    weakSelf.tableView.tableFooterView = weakSelf.noTransactionIndicator
-                } else {
-                    weakSelf.tableView.tableFooterView = UIView()
-                }
-            }
-        }
+    @IBAction func presentFilterWindow(_ sender: Any) {
+        filterController.delegate = self
+        present(filterController, animated: true, completion: nil)
     }
 
-    private func updateUI() {
-        guard let asset = asset else {
+    
+    @IBAction func infoAction(_ sender: Any) {
+        AssetInfoWindow.instance().presentWindow(asset: asset)
+    }
+    
+    @IBAction func transfer(_ sender: Any) {
+        guard let asset = self.asset else {
             return
         }
-        if let url = URL(string: asset.iconUrl) {
-            iconImageView.sd_setImage(with: url, placeholderImage: #imageLiteral(resourceName: "ic_place_holder"), options: [], completed: nil)
-        }
-        if let chainIconUrl  = asset.chainIconUrl,  let chainUrl = URL(string: chainIconUrl) {
-            blockchainImageView.sd_setImage(with: chainUrl)
-            blockchainImageView.isHidden = false
-        }
-        balanceLabel.text = CurrencyFormatter.localizedString(from: asset.balance, format: .precision, sign: .never, symbol: .custom(asset.symbol))
-        exchangeLabel.text = asset.localizedUSDBalance
-        depositButton.isBusy = !(asset.isAccount || asset.isAddress)
+        let alc = UIAlertController(title: Localized.ACTION_SEND_TO, message: nil, preferredStyle: .actionSheet)
+        alc.addAction(UIAlertAction(title: Localized.CHAT_MENU_CONTACT, style: .default, handler: { [weak self] (_) in
+            let vc = TransferReceiverViewController.instance(asset: asset)
+            self?.navigationController?.pushViewController(vc, animated: true)
+        }))
+        alc.addAction(UIAlertAction(title: Localized.WALLET_ADDRESS, style: .default, handler: { [weak self](_) in
+            let vc = AddressViewController.instance(asset: asset)
+            self?.navigationController?.pushViewController(vc, animated: true)
+        }))
+        alc.addAction(UIAlertAction(title: Localized.DIALOG_BUTTON_CANCEL, style: .cancel, handler: nil))
+        self.present(alc, animated: true, completion: nil)
     }
-
+    
+    @IBAction func deposit(_ sender: Any) {
+        guard !tableHeaderView.depositButton.isBusy else {
+            return
+        }
+        let vc = DepositViewController.instance(asset: asset)
+        navigationController?.pushViewController(vc, animated: true)
+    }
+    
     class func instance(asset: AssetItem) -> UIViewController {
-        let vc = Storyboard.wallet.instantiateViewController(withIdentifier: "asset") as! AssetViewController
+        let vc = R.storyboard.wallet.asset()!
         vc.asset = asset
+        vc.snapshotDataSource = SnapshotDataSource(category: .asset(id: asset.assetId))
         let container = ContainerViewController.instance(viewController: vc, title: asset.name)
-        container.automaticallyAdjustsScrollViewInsets = false
         return container
     }
     
 }
 
 extension AssetViewController: ContainerViewControllerDelegate {
-
+    
+    var prefersNavigationBarSeparatorLineHidden: Bool {
+        return true
+    }
+    
     func barRightButtonTappedAction() {
         let alc = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
-        alc.addAction(UIAlertAction(title: Localized.WALLET_MENU_WITHDRAW, style: .default, handler: { [weak self] (_) in
+        let asset = self.asset!
+        let toggleAssetHiddenTitle = AppGroupUserDefaults.Wallet.hiddenAssetIds[asset.assetId] == nil ? Localized.WALLET_MENU_HIDE_ASSET : Localized.WALLET_MENU_SHOW_ASSET
+        alc.addAction(UIAlertAction(title: toggleAssetHiddenTitle, style: .default, handler: { [weak self](_) in
             guard let weakSelf = self else {
                 return
             }
-            let vc = WithdrawalViewController.instance(asset: weakSelf.asset)
-            weakSelf.navigationController?.pushViewController(vc, animated: true)
-        }))
-        let toggleAssetHiddenTitle = WalletUserDefault.shared.hiddenAssets[asset.assetId] == nil ? Localized.WALLET_MENU_HIDE_ASSET : Localized.WALLET_MENU_SHOW_ASSET
-        alc.addAction(UIAlertAction(title: toggleAssetHiddenTitle, style: .default, handler: { [weak self](_) in
-            guard let weakSelf = self, let asset = weakSelf.asset else {
-                return
-            }
-            if WalletUserDefault.shared.hiddenAssets[asset.assetId] == nil {
-                WalletUserDefault.shared.hiddenAssets[asset.assetId] = asset.assetId
+            if AppGroupUserDefaults.Wallet.hiddenAssetIds[asset.assetId] ?? false {
+                AppGroupUserDefaults.Wallet.hiddenAssetIds.removeValue(forKey: asset.assetId)
             } else {
-                WalletUserDefault.shared.hiddenAssets.removeValue(forKey: asset.assetId)
+                AppGroupUserDefaults.Wallet.hiddenAssetIds[asset.assetId] = true
             }
-            NotificationCenter.default.postOnMain(name: .AssetVisibleDidChange)
+            NotificationCenter.default.post(onMainThread: Application.assetVisibilityDidChangeNotification, object: self)
             weakSelf.navigationController?.popViewController(animated: true)
         }))
         alc.addAction(UIAlertAction(title: Localized.DIALOG_BUTTON_CANCEL, style: .cancel, handler: nil))
         self.present(alc, animated: true, completion: nil)
     }
-
+    
     func imageBarRightButton() -> UIImage? {
-        return #imageLiteral(resourceName: "ic_titlebar_more")
+        return R.image.ic_title_more()
     }
-
+    
 }
 
-extension AssetViewController {
+extension AssetViewController: UITableViewDataSource {
     
-    override func numberOfSections(in tableView: UITableView) -> Int {
-        return 2
+    func numberOfSections(in tableView: UITableView) -> Int {
+        return snapshotDataSource.titles.count
     }
     
-    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        if section == 1 {
-            return snapshots.count
-        } else {
-            return super.tableView(tableView, numberOfRowsInSection: section)
-        }
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        return snapshotDataSource.snapshots[section].count
     }
     
-    override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        if indexPath.section == 1 {
-            let cell = tableView.dequeueReusableCell(withIdentifier: SnapshotCell.cellIdentifier, for: indexPath) as! SnapshotCell
-            cell.render(snapshot: snapshots[indexPath.row])
-            return cell
-        } else {
-            return super.tableView(tableView, cellForRowAt: indexPath)
-        }
+    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = tableView.dequeueReusableCell(withIdentifier: R.reuseIdentifier.snapshot, for: indexPath)!
+        cell.render(snapshot: snapshotDataSource.snapshots[indexPath.section][indexPath.row], asset: asset)
+        cell.delegate = self
+        return cell
     }
+    
+}
 
-    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+extension AssetViewController: UITableViewDelegate {
+    
+    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        guard indexPath.section == 1 else {
+        let snapshot = snapshotDataSource.snapshots[indexPath.section][indexPath.row]
+        let vc = TransactionViewController.instance(asset: asset, snapshot: snapshot)
+        navigationController?.pushViewController(vc, animated: true)
+    }
+    
+    func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
+        let header = tableView.dequeueReusableHeaderFooterView(withIdentifier: ReuseId.header) as! AssetHeaderView
+        header.label.text = snapshotDataSource.titles[section]
+        return header
+    }
+    
+    func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
+        let title = snapshotDataSource.titles[section]
+        return title.isEmpty ? .leastNormalMagnitude : 44
+    }
+    
+    func tableView(_ tableView: UITableView, willDisplay cell: UITableViewCell, forRowAt indexPath: IndexPath) {
+        guard let distance = snapshotDataSource.distanceToLastItem(of: indexPath) else {
             return
         }
-        
-        navigationController?.pushViewController(TransactionViewController.instance(asset: asset, snapshot: snapshots[indexPath.row]), animated: true)
-
+        if distance < loadMoreThreshold {
+            snapshotDataSource.loadMoreIfPossible()
+        }
     }
+    
 }
+
+extension AssetViewController: AssetFilterViewControllerDelegate {
     
+    func assetFilterViewController(_ controller: AssetFilterViewController, didApplySort sort: Snapshot.Sort, filter: Snapshot.Filter) {
+        tableView.setContentOffset(.zero, animated: false)
+        tableView.layoutIfNeeded()
+        snapshotDataSource.setSort(sort, filter: filter)
+        updateTableHeaderFooterView()
+    }
+    
+}
+
+extension AssetViewController: SnapshotCellDelegate {
+    
+    func walletSnapshotCellDidSelectIcon(_ cell: SnapshotCell) {
+        guard let indexPath = tableView.indexPath(for: cell) else {
+            return
+        }
+        let snapshot = snapshotDataSource.snapshots[indexPath.section][indexPath.row]
+        guard snapshot.type == SnapshotType.transfer.rawValue, let userId = snapshot.opponentUserId else {
+            return
+        }
+        DispatchQueue.global().async {
+            guard let user = UserDAO.shared.getUser(userId: userId), user.isCreatedByMessenger else {
+                return
+            }
+            DispatchQueue.main.async { [weak self] in
+                let vc = UserProfileViewController(user: user)
+                self?.present(vc, animated: true, completion: nil)
+            }
+        }
+    }
+    
+}
+
 extension AssetViewController {
-
-    override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        guard section == 1 && snapshots.count > 0 else {
-            return nil
-        }
-        return Localized.TRANSFER_TRANSACTIONS
-    }
     
-    override func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        if indexPath.section == 1 {
-            return SnapshotCell.cellHeight
+    private func updateTableViewContentInset() {
+        if view.safeAreaInsets.bottom < 1 {
+            tableView.contentInset.bottom = 10
         } else {
-            return UITableView.automaticDimension
+            tableView.contentInset.bottom = 0
         }
     }
     
-    override func tableView(_ tableView: UITableView, indentationLevelForRowAt indexPath: IndexPath) -> Int {
-        if indexPath.section == 1 {
-            return 0
-        } else {
-            return super.tableView(tableView, indentationLevelForRowAt: indexPath)
+    private func reloadAsset() {
+        let assetId = asset.assetId
+        DispatchQueue.global().async { [weak self] in
+            guard let asset = AssetDAO.shared.getAsset(assetId: assetId) else {
+                return
+            }
+            self?.asset = asset
+            DispatchQueue.main.sync {
+                guard let weakSelf = self else {
+                    return
+                }
+                UIView.performWithoutAnimation {
+                    weakSelf.tableHeaderView.render(asset: asset)
+                    weakSelf.tableHeaderView.sizeToFit()
+                    weakSelf.updateTableHeaderFooterView()
+                }
+            }
         }
     }
-
-    override func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
-        return section == 0 ? CGFloat.leastNormalMagnitude : 30
+    
+    private func updateTableHeaderFooterView() {
+        if snapshotDataSource.snapshots.isEmpty {
+            tableHeaderView.transactionsHeaderView.isHidden = false
+            noTransactionFooterView.frame.size.height = tableView.frame.height
+                - tableView.contentSize.height
+                - tableView.adjustedContentInset.vertical
+            tableView.tableFooterView = noTransactionFooterView
+        } else {
+            tableHeaderView.transactionsHeaderView.isHidden = false
+            tableView.tableFooterView = nil
+        }
     }
-
-    override func tableView(_ tableView: UITableView, heightForFooterInSection section: Int) -> CGFloat {
-        return 10
-    }
+    
 }

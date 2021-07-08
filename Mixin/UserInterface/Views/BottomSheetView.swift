@@ -6,8 +6,8 @@ class BottomSheetView: UIView {
 
     @IBOutlet weak var contentBottomConstraint: NSLayoutConstraint!
 
-    internal(set) var isShowing = false
-    internal(set) var windowBackgroundColor = UIColor(white: 0.0, alpha: 0.5)
+    var isShowing = false
+    var windowBackgroundColor = UIColor(white: 0.0, alpha: 0.5)
     
     private var animationOriginPoint: CGPoint {
         return CGPoint(x: self.center.x, y: self.bounds.size.height + self.popupView.bounds.size.height)
@@ -34,7 +34,8 @@ class BottomSheetView: UIView {
         window.addSubview(self)
         self.alpha = 0
 
-        UIView.animate(withDuration: 0.25, animations: {
+        UIView.animate(withDuration: 0.5, animations: {
+            UIView.setAnimationCurve(.overdamped)
             self.popAnimationBody()
         })
     }
@@ -42,7 +43,8 @@ class BottomSheetView: UIView {
     @objc func dismissPopupControllerAnimated() {
         self.alpha = 1.0
         isShowing = false
-        UIView.animate(withDuration: 0.25, animations: {
+        UIView.animate(withDuration: 0.5, animations: {
+            UIView.setAnimationCurve(.overdamped)
             self.alpha = 0
             self.popupView.center = self.getAnimationStartPoint()
         }, completion: { (finished: Bool) -> Void in
@@ -89,7 +91,7 @@ extension BottomSheetView {
             self.frame = superView.bounds
 
             self.backgroundColor = windowBackgroundColor
-            let gestureRecognizer = UITapGestureRecognizer(target: self, action: #selector(dismissPopupControllerAnimated))
+            let gestureRecognizer = UITapGestureRecognizer(target: self, action: #selector(dismissView))
             gestureRecognizer.delegate = self
             self.addGestureRecognizer(gestureRecognizer)
 
@@ -97,15 +99,17 @@ extension BottomSheetView {
         }
         self.alpha = 0
         self.popupView.center = getAnimationStartPoint()
-        UIView.animate(withDuration: 0.25, animations: {
+        UIView.animate(withDuration: 0.5, animations: {
+            UIView.setAnimationCurve(.overdamped)
             self.popAnimationBody()
         })
     }
 
-    func dismissView() {
+    @objc func dismissView() {
         self.alpha = 1.0
         isShowing = false
-        UIView.animate(withDuration: 0.25, animations: {
+        UIView.animate(withDuration: 0.5, animations: {
+            UIView.setAnimationCurve(.overdamped)
             self.alpha = 0
             self.popupView.center = self.getAnimationStartPoint()
         })
@@ -113,3 +117,11 @@ extension BottomSheetView {
 
 }
 
+extension BottomSheetView {
+
+	func alert(_ message: String, actionTitle: String = Localized.DIALOG_BUTTON_OK, cancelHandler: ((UIAlertAction) -> Void)? = nil) {
+        let alc = UIAlertController(title: message, message: nil, preferredStyle: .alert)
+        alc.addAction(UIAlertAction(title: actionTitle, style: .default, handler: cancelHandler))
+        AppDelegate.current.mainWindow.rootViewController?.present(alc, animated: true, completion: nil)
+    }
+}

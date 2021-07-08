@@ -1,6 +1,6 @@
 import UIKit
 
-class AuthorizationTableViewCell: UITableViewCell {
+class AuthorizationTableViewCell: ModernSelectedBackgroundCell {
     
     @IBOutlet weak var iconImageView: AvatarImageView!
     @IBOutlet weak var titleStackView: UIStackView!
@@ -10,11 +10,6 @@ class AuthorizationTableViewCell: UITableViewCell {
     override func prepareForReuse() {
         super.prepareForReuse()
         iconImageView.sd_cancelCurrentImageLoad()
-    }
-    
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        separatorInset.left = titleStackView.frame.origin.x
     }
     
 }

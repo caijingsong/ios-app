@@ -4,6 +4,10 @@ func ceil(_ size: CGSize) -> CGSize {
     return CGSize(width: ceil(size.width), height: ceil(size.height))
 }
 
+func round(_ size: CGSize) -> CGSize {
+    return CGSize(width: round(size.width), height: round(size.height))
+}
+
 func round(_ point: CGPoint) -> CGPoint {
     return CGPoint(x: round(point.x), y: round(point.y))
 }
@@ -36,40 +40,6 @@ extension CGPoint {
     
 }
 
-extension CGSize {
-    
-    static func +(lhs: CGSize, rhs: CGSize) -> CGSize {
-        return CGSize(width: lhs.width + rhs.width, height: lhs.height + rhs.height)
-    }
-    
-    static func -(lhs: CGSize, rhs: CGSize) -> CGSize {
-        return CGSize(width: lhs.width - rhs.width, height: lhs.height - rhs.height)
-    }
-    
-    static func *(lhs: CGSize, rhs: CGFloat) -> CGSize {
-        return CGSize(width: lhs.width * rhs, height: lhs.height * rhs)
-    }
-    
-    static func /(lhs: CGSize, rhs: CGFloat) -> CGSize {
-        return CGSize(width: lhs.width / rhs, height: lhs.height / rhs)
-    }
-    
-    func rect(fittingSize containerSize: CGSize) -> CGRect {
-        let containerRatio = containerSize.width / containerSize.height
-        let myRatio = width / height
-        let size: CGSize, origin: CGPoint
-        if myRatio > containerRatio {
-            size = CGSize(width: containerSize.width, height: ceil(containerSize.width / myRatio))
-            origin = CGPoint(x: 0, y: (containerSize.height - size.height) / 2)
-        } else {
-            size = CGSize(width: ceil(containerSize.height * myRatio), height: containerSize.height)
-            origin = CGPoint(x: (containerSize.width - size.width) / 2, y: 0)
-        }
-        return CGRect(origin: origin, size: size)
-    }
-    
-}
-
 extension UIEdgeInsets {
     
     var horizontal: CGFloat {
@@ -79,5 +49,11 @@ extension UIEdgeInsets {
     var vertical: CGFloat {
         return top + bottom
     }
+    
+}
+
+extension CGAffineTransform {
+    
+    static let italic = CGAffineTransform(a: 1, b: 0, c: tan(.pi / 14), d: 1, tx: 0, ty: 0).translatedBy(x: 0, y: -1)
     
 }

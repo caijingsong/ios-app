@@ -5,12 +5,13 @@ class FileSendViewController: UIViewController, MixinNavigationAnimating {
 
     private var documentUrl: URL!
     private var webView : WKWebView!
-    private weak var dataSource: ConversationDataSource?
-
+    
+    private weak var conversationInputViewController: ConversationInputViewController!
+    
     override func viewDidLoad() {
         super.viewDidLoad()
-
-        container?.leftButton.setImage(#imageLiteral(resourceName: "ic_titlebar_close"), for: .normal)
+        container?.leftButton.tintColor = R.color.icon_tint()
+        container?.leftButton.setImage(R.image.ic_title_close(), for: .normal)
         let config = WKWebViewConfiguration()
         config.mediaTypesRequiringUserActionForPlayback = .all
         webView = WKWebView(frame: self.view.frame, configuration: config)
@@ -21,10 +22,10 @@ class FileSendViewController: UIViewController, MixinNavigationAnimating {
         webView.loadFileURL(documentUrl, allowingReadAccessTo: documentUrl)
     }
 
-    class func instance(documentUrl: URL, dataSource: ConversationDataSource?) -> UIViewController {
+    class func instance(documentUrl: URL, conversationInputViewController: ConversationInputViewController) -> UIViewController {
         let vc = FileSendViewController()
         vc.documentUrl = documentUrl
-        vc.dataSource = dataSource
+        vc.conversationInputViewController = conversationInputViewController
         return ContainerViewController.instance(viewController: vc, title: documentUrl.lastPathComponent.substring(endChar:  "."))
     }
 
@@ -33,12 +34,15 @@ class FileSendViewController: UIViewController, MixinNavigationAnimating {
 extension FileSendViewController: ContainerViewControllerDelegate {
 
     func barRightButtonTappedAction() {
-        dataSource?.sendMessage(type: .SIGNAL_DATA, value: documentUrl)
+        guard let url = documentUrl else {
+            return
+        }
+        conversationInputViewController?.sendFile(url: url)
         navigationController?.popViewController(animated: true)
     }
 
     func imageBarRightButton() -> UIImage? {
-        return #imageLiteral(resourceName: "ic_chat_send")
+        return R.image.conversation.ic_send()
     }
 
 }
