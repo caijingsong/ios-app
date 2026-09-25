@@ -1,30 +1,33 @@
 import UIKit
+import MixinServices
 
-class StickersViewController: StickersCollectionViewController {
+class StickersViewController: StickersCollectionViewController, ConversationInputAccessible {
     
-    var stickers = [Sticker]()
+    static let stickerUsedAtDidUpdateNotification = NSNotification.Name("one.mixin.messenger.StickersViewController.stickerUsedAtDidUpdate")
+    static let stickerUserInfoKey = "sticker"
+    
+    var stickers = [StickerItem]()
     
     override var isEmpty: Bool {
         return stickers.isEmpty
     }
     
-    func load(stickers: [Sticker]) {
+    func load(stickers: [StickerItem]) {
         self.stickers = stickers
         collectionView.reloadData()
         collectionView.setContentOffset(.zero, animated: false)
     }
     
-    func send(sticker: Sticker) {
-        conversationViewController?.dataSource?.sendMessage(type: .SIGNAL_STICKER, value: sticker)
-        conversationViewController?.reduceStickerPanelHeightIfMaximized()
-        if updateUsedAtAfterSent {
-            DispatchQueue.global().async {
-                let newUsedAt = Date().toUTCString()
-                StickerDAO.shared.updateUsedAt(stickerId: sticker.stickerId, usedAt: newUsedAt)
-                var newSticker = sticker
-                newSticker.lastUseAt = newUsedAt
-                NotificationCenter.default.postOnMain(name: .StickerUsedAtDidUpdate, object: newSticker)
-            }
+    func send(sticker: StickerItem) {
+        composer?.sendMessage(type: .SIGNAL_STICKER, value: sticker)
+        DispatchQueue.global().async {
+            let newUsedAt = Date().toUTCString()
+            StickerDAO.shared.updateUsedAt(stickerId: sticker.stickerId, usedAt: newUsedAt)
+            var newSticker = sticker
+            newSticker.lastUseAt = newUsedAt
+            NotificationCenter.default.post(onMainThread: Self.stickerUsedAtDidUpdateNotification,
+                                            object: self,
+                                            userInfo: [Self.stickerUserInfoKey: newSticker])
         }
     }
     
@@ -33,10 +36,9 @@ class StickersViewController: StickersCollectionViewController {
     }
     
     override func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-        let cell = collectionView.dequeueReusableCell(withReuseIdentifier: cellReuseId, for: indexPath) as! AnimatedImageCollectionViewCell
-        if let url = URL(string: stickers[indexPath.row].assetUrl) {
-            cell.imageView.sd_setImage(with: url, completed: nil)
-        }
+        let cell = collectionView.dequeueReusableCell(withReuseIdentifier: cellReuseId, for: indexPath) as! StickerPreviewCell
+        let sticker = stickers[indexPath.row]
+        cell.stickerView.load(sticker: sticker)
         return cell
     }
     

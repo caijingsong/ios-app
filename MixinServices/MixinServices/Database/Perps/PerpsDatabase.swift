@@ -1,0 +1,245 @@
+import GRDB
+
+public final class PerpsDatabase: Database {
+    
+    public private(set) static var current: PerpsDatabase! = makeDatabaseWithDefaultLocation()
+    
+    public override class var config: Configuration {
+        var config = super.config
+        config.label = "Perps"
+        return config
+    }
+    
+    public override var needsMigration: Bool {
+        try! read { (db) -> Bool in
+            let migrationsCompleted = try migrator.hasCompletedMigrations(db)
+            return !migrationsCompleted
+        }
+    }
+    
+    private var migrator: DatabaseMigrator {
+        var migrator = DatabaseMigrator()
+        
+        migrator.registerMigration("create_table") { db in
+            let sqls = [
+                """
+                CREATE TABLE IF NOT EXISTS `markets` (
+                    `market_id`         TEXT NOT NULL,
+                    `display_symbol`    TEXT NOT NULL,
+                    `token_symbol`      TEXT NOT NULL,
+                    `quote_symbol`      TEXT NOT NULL,
+                    `mark_price`        TEXT NOT NULL,
+                    `leverage`          INTEGER NOT NULL,
+                    `icon_url`          TEXT NOT NULL,
+                    `funding_rate`      TEXT NOT NULL,
+                    `min_amount`        TEXT NOT NULL,
+                    `max_amount`        TEXT NOT NULL,
+                    `last`              TEXT NOT NULL,
+                    `volume`            TEXT NOT NULL,
+                    `high`              TEXT NOT NULL,
+                    `low`               TEXT NOT NULL,
+                    `open`              TEXT NOT NULL,
+                    `change`            TEXT NOT NULL,
+                    `bid_price`         TEXT NOT NULL,
+                    `ask_price`         TEXT NOT NULL,
+                    `created_at`        TEXT NOT NULL,
+                    `updated_at`        TEXT NOT NULL,
+                    PRIMARY KEY(market_id)
+                )
+                """,
+                """
+                CREATE TABLE IF NOT EXISTS `positions` (
+                    `position_id`       TEXT NOT NULL,
+                    `market_id`         TEXT NOT NULL,
+                    `side`              TEXT NOT NULL,
+                    `quantity`          TEXT NOT NULL,
+                    `entry_price`       TEXT NOT NULL,
+                    `margin`            TEXT NOT NULL,
+                    `leverage`          INTEGER NOT NULL,
+                    `state`             TEXT NOT NULL,
+                    `mark_price`        TEXT NOT NULL,
+                    `unrealized_pnl`    TEXT NOT NULL,
+                    `roe`               TEXT NOT NULL,
+                    `settle_asset_id`   TEXT NOT NULL,
+                    `open_pay_amount`   TEXT NOT NULL,
+                    `open_pay_asset_id` TEXT NOT NULL,
+                    `bot_id`            TEXT NOT NULL,
+                    `wallet_id`         TEXT NOT NULL,
+                    `created_at`        TEXT NOT NULL,
+                    `updated_at`        TEXT NOT NULL,
+                    PRIMARY KEY(`position_id`)
+                )
+                """,
+            ]
+            for sql in sqls {
+                try db.execute(sql: sql)
+            }
+        }
+        
+        migrator.registerMigration("market_category") { db in
+            let infos = try TableInfo.fetchAll(db, sql: "PRAGMA table_info(markets)")
+            let columnNames = infos.map(\.name)
+            if !columnNames.contains("category") {
+                try db.execute(sql: "ALTER TABLE markets ADD COLUMN category TEXT NOT NULL DEFAULT ''")
+            }
+            if !columnNames.contains("tags") {
+                try db.execute(sql: "ALTER TABLE markets ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'")
+            }
+        }
+        
+        migrator.registerMigration("auto_closing") { db in
+            let infos = try TableInfo.fetchAll(db, sql: "PRAGMA table_info(positions)")
+            let columnNames = infos.map(\.name)
+            if !columnNames.contains("take_profit_price") {
+                try db.execute(sql: "ALTER TABLE positions ADD COLUMN take_profit_price TEXT")
+            }
+            if !columnNames.contains("stop_loss_price") {
+                try db.execute(sql: "ALTER TABLE positions ADD COLUMN stop_loss_price TEXT")
+            }
+            if !columnNames.contains("liquidation_price") {
+                try db.execute(sql: "ALTER TABLE positions ADD COLUMN liquidation_price TEXT")
+            }
+        }
+        
+        migrator.registerMigration("price_scale") { db in
+            let infos = try TableInfo.fetchAll(db, sql: "PRAGMA table_info(markets)")
+            let columnNames = infos.map(\.name)
+            if !columnNames.contains("price_scale") {
+                try db.execute(sql: "ALTER TABLE markets ADD COLUMN price_scale INTEGER DEFAULT 2")
+            }
+        }
+        
+        migrator.registerMigration("add_position") { db in
+            try db.execute(sql: "DROP TABLE IF EXISTS position_histories")
+            try db.execute(sql: """
+            CREATE TABLE IF NOT EXISTS perps_orders (
+                order_id TEXT NOT NULL PRIMARY KEY,
+                position_id TEXT NOT NULL,
+                market_id TEXT NOT NULL,
+                side TEXT NOT NULL,
+                order_type TEXT NOT NULL,
+                status TEXT NOT NULL,
+                leverage INTEGER NOT NULL,
+                quantity TEXT NOT NULL,
+                entry_price TEXT NOT NULL,
+                close_price TEXT NOT NULL,
+                realized_pnl TEXT NOT NULL,
+                roe TEXT NOT NULL,
+                close_reason TEXT,
+                trigger_price TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """)
+        }
+        
+        migrator.registerMigration("activity_pay_amount") { db in
+            let infos = try TableInfo.fetchAll(db, sql: "PRAGMA table_info(perps_orders)")
+            let columnNames = infos.map(\.name)
+            if !columnNames.contains("pay_amount") {
+                try db.execute(sql: "DELETE FROM perps_orders")
+                try db.execute(sql: "ALTER TABLE perps_orders ADD COLUMN pay_amount TEXT NOT NULL")
+            }
+        }
+        
+        migrator.registerMigration("market_description") { db in
+            let infos = try TableInfo.fetchAll(db, sql: "PRAGMA table_info(markets)")
+            let columnNames = infos.map(\.name)
+            if !columnNames.contains("descriptions") {
+                try db.execute(sql: "ALTER TABLE markets ADD COLUMN descriptions TEXT")
+            }
+        }
+        
+        migrator.registerMigration("market_favorite") { db in
+            let sqls = [
+                """
+                CREATE TABLE IF NOT EXISTS `favorites` (
+                    `market_id`     TEXT NOT NULL,
+                    `is_favored`    INTEGER NOT NULL,
+                    `created_at`    TEXT NOT NULL,
+                    PRIMARY KEY(`market_id`)
+                )
+                """,
+                """
+                CREATE TABLE IF NOT EXISTS `market_categories` (
+                    `market_id` TEXT NOT NULL,
+                    `category`  INTEGER NOT NULL,
+                    PRIMARY KEY(`market_id`, `category`)
+                )
+                """,
+                "CREATE INDEX IF NOT EXISTS index_market_categories_category ON market_categories(category)",
+            ]
+            for sql in sqls {
+                try db.execute(sql: sql)
+            }
+        }
+        
+        migrator.registerMigration("fee") { db in
+            let perpOrdersColumns = try TableInfo
+                .fetchAll(db, sql: "PRAGMA table_info(perps_orders)")
+                .map(\.name)
+            if !perpOrdersColumns.contains("fee_amount") {
+                try db.execute(sql: "DELETE FROM perps_orders")
+                try db.execute(sql: "ALTER TABLE `perps_orders` ADD COLUMN `fee_amount` TEXT NOT NULL DEFAULT '0'")
+            }
+            
+            let marketsColumns = try TableInfo
+                .fetchAll(db, sql: "PRAGMA table_info(markets)")
+                .map(\.name)
+            if !marketsColumns.contains("funding_interval_hours") {
+                try db.execute(sql: "ALTER TABLE `markets` ADD COLUMN `funding_interval_hours` INTEGER NOT NULL DEFAULT 0")
+            }
+            if !marketsColumns.contains("next_funding_at") {
+                try db.execute(sql: "ALTER TABLE `markets` ADD COLUMN `next_funding_at` TEXT NOT NULL DEFAULT ''")
+            }
+            if !marketsColumns.contains("open_interest") {
+                try db.execute(sql: "ALTER TABLE `markets` ADD COLUMN `open_interest` TEXT NOT NULL DEFAULT '0'")
+            }
+        }
+        
+        migrator.registerMigration("score") { db in
+            let marketColumns = try TableInfo
+                .fetchAll(db, sql: "PRAGMA table_info(markets)")
+                .map(\.name)
+            if !marketColumns.contains("trade_volume_score_1d") {
+                try db.execute(sql: "DELETE FROM markets")
+                try db.execute(sql: "ALTER TABLE `markets` ADD COLUMN `trade_volume_score_1d` INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+        
+        return migrator
+    }
+    
+    public static func reloadCurrent() {
+        current = makeDatabaseWithDefaultLocation()
+        current.migrate()
+    }
+    
+    private static func makeDatabaseWithDefaultLocation() -> PerpsDatabase {
+        let db = try! PerpsDatabase(url: AppGroupContainer.perpsDatabaseUrl)
+        if AppGroupUserDefaults.User.needsRebuildDatabase {
+            try? db.pool.barrierWriteWithoutTransaction { (db) -> Void in
+                try db.execute(sql: "DROP TABLE IF EXISTS grdb_migrations")
+            }
+        }
+        return db
+    }
+    
+    public override func tableDidLose(with error: Error?, fileSize: Int64?, fileCreationDate: Date?) {
+        let error: MixinServicesError = .databaseCorrupted(
+            database: "perps",
+            isAppExtension: isAppExtension,
+            error: error,
+            fileSize: fileSize,
+            fileCreationDate: fileCreationDate
+        )
+        reporter.report(error: error)
+        Logger.database.error(category: "PerpsDatabase", message: "Table lost with error: \(error)")
+        AppGroupUserDefaults.User.needsRebuildDatabase = true
+    }
+    
+    private func migrate() {
+        try! migrator.migrate(pool)
+    }
+    
+}

@@ -1,185 +1,164 @@
 import UIKit
+import MixinServices
 
-class NewGroupViewController: UIViewController {
-
-    @IBOutlet weak var tableView: UITableView!
-
-    private let groupNameCellReuseId = "GroupName"
-    private let groupMemberCellReuseId = "GroupMember"
-    private let conversationId = UUID().uuidString.lowercased()
-
-    private var rightButton: StateResponsiveButton?
-    private var groupNameCell: GroupNameCell!
-    private var staticCells: [UITableViewCell]!
-    private var members = [GroupUser]()
-
+final class NewGroupViewController: UIViewController {
+    
+    @IBOutlet weak var groupImageView: CornerImageView!
+    @IBOutlet weak var participentLabel: UILabel!
+    @IBOutlet weak var nameTextField: UITextField!
+    @IBOutlet weak var createButton: RoundedButton!
+    
+    private let randomID = UUID().uuidString.lowercased()
+    private let members: [GroupMemberCandidate]
+    
     private var groupName: String {
-        return groupNameCell.textField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    }
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        tableView.register(UINib(nibName: "GroupMemberCell", bundle: .main), forCellReuseIdentifier: groupMemberCellReuseId)
-        groupNameCell = tableView.dequeueReusableCell(withIdentifier: groupNameCellReuseId) as? GroupNameCell
-        staticCells = [groupNameCell]
-        tableView.dataSource = self
-        tableView.delegate = self
-        tableView.tableFooterView = UIView()
-
-        groupNameCell.textField.addTarget(self, action: #selector(nameChangedAction(_:)), for: .editingChanged)
-        groupNameCell.textField.becomeFirstResponder()
-    }
-
-    @objc func nameChangedAction(_ sender: Any) {
-        rightButton?.isEnabled = !groupName.isEmpty
-    }
-
-    @IBAction func popAction(_ sender: Any) {
-        navigationController?.popViewController(animated: true)
+        nameTextField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
     
-    private func createAction() {
-        guard let rightButton = self.rightButton else {
+    init(members: [GroupMemberCandidate]) {
+        self.members = members
+        let nib = R.nib.newGroupView
+        super.init(nibName: nib.name, bundle: nib.bundle)
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("Storyboard not supported")
+    }
+    
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        title = R.string.localizable.new_group()
+        loadGroupIcon()
+        nameTextField.delegate = self
+        participentLabel.text = R.string.localizable.title_participants_count(members.count + 1)
+        createButton.snp.makeConstraints { make in
+            make.bottom.equalTo(view.keyboardLayoutGuide.snp.top)
+                .offset(-20)
+                .priority(.high)
+        }
+        nameTextField.becomeFirstResponder()
+    }
+    
+    @IBAction func updateCreateButton(_ sender: Any) {
+        createButton.isEnabled = !groupName.isEmpty
+    }
+    
+    @IBAction func createAction(_ sender: Any) {
+        guard !createButton.isBusy else {
             return
         }
-
-        rightButton.isBusy = true
-
+        
+        createButton.isBusy = true
+        
+        // TODO: Create the conversation with a serializable job, which encodes the random id
         let participants = members.map {
             ParticipantRequest(userId: $0.userId, role: "")
         }
-        let request = ConversationRequest(conversationId: self.conversationId, name: self.groupName, category: ConversationCategory.GROUP.rawValue, participants: participants, duration: nil, announcement: nil)
-        ConversationAPI.shared.createConversation(conversation: request) { [weak self](result) in
+        let conversationID = Self.groupConversationID(
+            ownerID: myUserId,
+            groupName: groupName,
+            participantUserIDs: participants.map(\.userId),
+            randomID: randomID
+        )
+        let request = ConversationRequest(
+            conversationId: conversationID,
+            name: groupName,
+            category: ConversationCategory.GROUP.rawValue,
+            participants: participants,
+            duration: nil,
+            announcement: nil,
+            randomID: randomID
+        )
+        ConversationAPI.createConversation(conversation: request) { [weak self](result) in
             guard let weakSelf = self else {
                 return
             }
             switch result {
             case let .success(response):
-                weakSelf.saveConversation(conversation: response)
-            case .failure:
-                if !NetworkManager.shared.isReachable {
-                    weakSelf.saveOfflineConversation()
-                } else {
-                    weakSelf.rightButton?.isBusy = false
-                }
+                weakSelf.saveConversation(response: response)
+            case let .failure(error):
+                showAutoHiddenHud(style: .error, text: error.localizedDescription)
+                weakSelf.createButton.isBusy = false
             }
         }
     }
+    
+}
 
-    private func saveOfflineConversation() {
-        let converstionId = self.conversationId
-        let name = self.groupName
-        let members = self.members
-
-        DispatchQueue.global().async { [weak self] in
-            if ConversationDAO.shared.createConversation(conversationId: converstionId, name: name, members: members) {
-                DispatchQueue.main.async {
-                    NotificationCenter.default.afterPostOnMain(name: .ConversationDidChange)
-                    self?.navigationController?.backToHome()
-                }
-            }
-        }
+extension NewGroupViewController: UITextFieldDelegate {
+    
+    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+        textField.resignFirstResponder()
+        return false
     }
+    
+}
 
-    private func saveConversation(conversation: ConversationResponse) {
+extension NewGroupViewController {
+    
+    static func groupConversationID(
+        ownerID: String,
+        groupName: String,
+        participantUserIDs: [String],
+        randomID: String
+    ) -> String {
+        var id = UUID.uniqueObjectIDString(sorting: [ownerID, groupName])
+        id = UUID.uniqueObjectIDString(sorting: [id, randomID])
+        let sortedParticipantIDs = participantUserIDs.sorted()
+        for participantID in sortedParticipantIDs {
+            id = UUID.uniqueObjectIDString(sorting: [id, participantID])
+        }
+        return id
+    }
+    
+    private func loadGroupIcon() {
+        var members = self.members
+        if let account = LoginManager.shared.account {
+            let me = GroupMemberCandidate(account: account)
+            members.insert(me, at: 0)
+        }
         DispatchQueue.global().async { [weak self] in
-            guard ConversationDAO.shared.createConversation(conversation: conversation, targetStatus: .SUCCESS) else {
-                DispatchQueue.main.async {
-                    self?.rightButton?.isBusy = false
-                }
-                return
-            }
-            guard let conversation = ConversationDAO.shared.getConversation(conversationId: conversation.conversationId) else {
-                return
-            }
+            let groupImage = GroupIconMaker.make(participants: members)
             DispatchQueue.main.async {
-                self?.navigationController?.pushViewController(withBackRoot: ConversationViewController.instance(conversation: conversation))
+                self?.groupImageView.image = groupImage
             }
         }
     }
-
-    class func instance(members: [GroupUser]) -> UIViewController {
-        let vc = Storyboard.group.instantiateViewController(withIdentifier: "new_group") as! NewGroupViewController
-        vc.members = members
-        return ContainerViewController.instance(viewController: vc, title: Localized.GROUP_NAVIGATION_TITLE_NEW_GROUP)
-    }
-
-}
-
-extension NewGroupViewController: ContainerViewControllerDelegate {
-
-    func barRightButtonTappedAction() {
-        createAction()
-    }
-
-    func textBarRightButton() -> String? {
-        return Localized.GROUP_BUTTON_TITLE_CREATE
-    }
-
-    func prepareBar(rightButton: StateResponsiveButton) {
-        self.rightButton = rightButton
-    }
-
-}
-
-extension NewGroupViewController: UITableViewDataSource {
-
-    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        if section == 0 {
-            return staticCells.count
-        } else {
-            return members.count
+    
+    private func saveGroupImage(conversationId: String, participants: [ParticipantUser]) -> String? {
+        guard let image = groupImageView.image else {
+            return nil
+        }
+        do {
+            let filename = try GroupIconSaver.save(image: image,
+                                                   forGroupWith: conversationId,
+                                                   participants: participants)
+            ConversationDAO.shared.updateIconUrl(conversationId: conversationId,
+                                                 iconUrl: filename)
+            return filename
+        } catch let GroupIconSaver.Error.fileExists(filename) {
+            return filename
+        } catch {
+            reporter.report(error: error)
+            return nil
         }
     }
     
-    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        if indexPath.section == 0 {
-            return staticCells[indexPath.row]
-        } else {
-            let cell = tableView.dequeueReusableCell(withIdentifier: groupMemberCellReuseId) as! GroupMemberCell
-            cell.render(user: members[indexPath.row])
-            return cell
+    private func saveConversation(response: ConversationResponse) {
+        DispatchQueue.global().async { [weak self] in
+            let (conversation, participantUsers) = ConversationDAO.shared.createNewConversation(response: response)
+            DispatchQueue.main.async {
+                guard let weakSelf = self else {
+                    return
+                }
+                if let iconUrl = weakSelf.saveGroupImage(conversationId: conversation.conversationId, participants: participantUsers) {
+                    conversation.iconUrl = iconUrl
+                }
+                weakSelf.nameTextField.resignFirstResponder()
+                let vc = ConversationViewController.instance(conversation: conversation)
+                weakSelf.navigationController?.pushViewController(withBackRoot: vc)
+            }
         }
-    }
-    
-    func numberOfSections(in tableView: UITableView) -> Int {
-        return 2
-    }
-
-}
-
-extension NewGroupViewController: UITableViewDelegate {
-    
-    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        switch indexPath.section {
-        case 0:
-            return indexPath.row == 0 ? 60 : 44
-        default:
-            return 60
-        }
-    }
-
-    func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
-        return section == 0 ? .leastNormalMagnitude : 20
-    }
-
-    func tableView(_ tableView: UITableView, heightForFooterInSection section: Int) -> CGFloat {
-        return 10
-    }
-
-    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        tableView.deselectRow(at: indexPath, animated: true)
-        guard indexPath.section == 0 else {
-            return
-        }
-
-        if indexPath.row == 0 {
-            changeNameAction()
-        }
-    }
-
-    private func changeNameAction() {
-        groupNameCell.textField.becomeFirstResponder()
     }
     
 }

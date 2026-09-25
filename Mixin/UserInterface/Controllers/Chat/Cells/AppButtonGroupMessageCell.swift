@@ -1,55 +1,62 @@
 import UIKit
 
-protocol AppButtonGroupMessageCellDelegate: class {
-    func appButtonGroupMessageCell(_ cell: AppButtonGroupMessageCell, didSelectActionAt index: Int)
-}
-
-class AppButtonGroupMessageCell: DetailInfoMessageCell {
-
-    weak var appButtonDelegate: AppButtonGroupMessageCellDelegate?
-
-    private var buttonViews = [UIView]()
+final class AppButtonGroupMessageCell: DetailInfoMessageCell {
+    
+    let buttonsView = AppButtonGroupView()
+    
+    weak var appButtonDelegate: AppButtonDelegate?
+    
+    override var contentFrame: CGRect {
+        (viewModel as? AppButtonGroupMessageViewModel)?.contentFrame ?? .zero
+    }
     
     override func render(viewModel: MessageViewModel) {
         super.render(viewModel: viewModel)
-        if let viewModel = viewModel as? AppButtonGroupViewModel, let appButtons = viewModel.message.appButtons {
-            buttonViews.forEach {
-                $0.removeFromSuperview()
-            }
-            buttonViews = []
-            for (i, frame) in viewModel.frames.enumerated() {
-                let buttonContent = appButtons[i]
-                let button = UIButton(frame: frame.button)
-                contentView.addSubview(button)
-                button.setBackgroundImage(#imageLiteral(resourceName: "ic_app_button_normal"), for: .normal)
-                button.setBackgroundImage(#imageLiteral(resourceName: "ic_app_button_selected"), for: .highlighted)
+        if let viewModel = viewModel as? AppButtonGroupMessageViewModel, let appButtons = viewModel.message.appButtons {
+            buttonsView.frame = viewModel.contentFrame
+            buttonsView.layoutButtons(viewModel: viewModel.buttonsViewModel)
+            for (i, content) in appButtons.enumerated() {
+                let buttonView = buttonsView.buttonViews[i]
+                let button = buttonView.button
+                buttonView.setTitle(content.label, colorHexString: content.color, disclosureIndicator: false)
                 button.tag = i
-                button.addTarget(self, action: #selector(buttonAction(sender:)), for: .touchUpInside)
-                buttonViews.append(button)
-                let label = UILabel(frame: frame.label)
-                contentView.addSubview(label)
-                label.numberOfLines = 0
-                label.text = buttonContent.label
-                label.font = AppButtonGroupViewModel.titleFont
-                label.textColor = UIColor(hexString: buttonContent.color) ?? .gray
-                label.textAlignment = .left
-                label.lineBreakMode = .byCharWrapping
-                buttonViews.append(label)
+                button.removeTarget(self, action: nil, for: .touchUpInside)
+                button.addTarget(self, action: #selector(performButtonAction(_:)), for: .touchUpInside)
+                
+                // According to disassembly result of UIKitCore from iOS 13.4.1
+                // UITableView's context menu handler cancels any context menu interaction
+                // on UIControl subclasses, therefore we have to handle it here
+                let interaction = UIContextMenuInteraction(delegate: self)
+                button.addInteraction(interaction)
             }
         }
     }
-
+    
     override func prepare() {
         super.prepare()
         timeLabel.isHidden = true
         statusImageView.isHidden = true
+        messageContentView.addSubview(buttonsView)
     }
     
-    @objc func buttonAction(sender: Any) {
-        guard let sender = sender as? UIButton else {
-            return
-        }
-        appButtonDelegate?.appButtonGroupMessageCell(self, didSelectActionAt: sender.tag)
+    @objc private func performButtonAction(_ sender: UIButton) {
+        appButtonDelegate?.appButtonCell(self, didSelectActionAt: sender.tag)
+    }
+    
+}
+
+extension AppButtonGroupMessageCell: UIContextMenuInteractionDelegate {
+    
+    func contextMenuInteraction(_ interaction: UIContextMenuInteraction, configurationForMenuAtLocation location: CGPoint) -> UIContextMenuConfiguration? {
+        appButtonDelegate?.contextMenuConfigurationForAppButtonGroupMessageCell(self)
+    }
+    
+    func contextMenuInteraction(_ interaction: UIContextMenuInteraction, previewForHighlightingMenuWithConfiguration configuration: UIContextMenuConfiguration) -> UITargetedPreview? {
+        appButtonDelegate?.previewForHighlightingContextMenuOfAppButtonGroupMessageCell(self, with: configuration)
+    }
+    
+    func contextMenuInteraction(_ interaction: UIContextMenuInteraction, previewForDismissingMenuWithConfiguration configuration: UIContextMenuConfiguration) -> UITargetedPreview? {
+        appButtonDelegate?.previewForDismissingContextMenuOfAppButtonGroupMessageCell(self, with: configuration)
     }
     
 }

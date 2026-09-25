@@ -2,11 +2,9 @@ import UIKit
 
 class TextMessageLabel: CoreTextLabel {
 
-    static let gestureRecognizerBypassingDelegateObject = GestureRecognizerBypassingDelegateObject()
-
     var highlightPaths = [UIBezierPath]()
     
-    private let highlightColor = UIColor.messageKeywordHighlight
+    private let highlightColor = R.color.chat_text_highlighted()!
 
     override func additionalDrawings() {
         highlightColor.setFill()
@@ -15,27 +13,4 @@ class TextMessageLabel: CoreTextLabel {
         }
     }
     
-    func canResponseTouch(at point: CGPoint) -> Bool {
-        guard let content = content else {
-            return false
-        }
-        for link in content.links {
-            if link.hitFrame.applying(coreTextTransform).contains(point) {
-                return true
-            }
-        }
-        return false
-    }
-    
-    class GestureRecognizerBypassingDelegateObject: NSObject, UIGestureRecognizerDelegate {
-        
-        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-            guard let label = touch.view as? TextMessageLabel else {
-                return true
-            }
-            return !label.canResponseTouch(at: touch.location(in: label))
-        }
-        
-    }
-
 }

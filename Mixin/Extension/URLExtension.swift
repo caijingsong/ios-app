@@ -1,22 +1,95 @@
 import Foundation
+import MobileCoreServices
 
 extension URL {
     
-    static let terms = URL(string: "https://mixin.one/pages/terms")!
-    static let privacy = URL(string: "https://mixin.one/pages/privacy")!
-    static let aboutEncryption = URL(string: "https://mixin.one/pages/1000007")!
+    static let blank                = URL(string: "about:blank")!
+    static let mixinMessenger       = URL(string: "https://messenger.mixin.one")!
+    static let shortMixinMessenger  = URL(string: "https://mixin.one/mm")!
+    static let terms                = URL(string: "https://mixin.one/pages/terms")!
+    static let privacy              = URL(string: "https://mixin.one/pages/privacy")!
+    static let aboutEncryption      = URL(string: "https://mixin.one/pages/1000007")!
+    static let tip                  = URL(string: "https://tip.id")!
+    static let customerService      = URL(string: "https://mixin.one/support")!
+    static let openSource           = URL(string: "https://github.com/MixinNetwork/ios-app")!
+    static let referral             = URL(string: R.string.localizable.url_referral())!
+    static let recoveryContact      = URL(string: R.string.localizable.url_recovery_contact())!
+    static let unsupportedMessage   = URL(string: R.string.localizable.url_unsupported_message())!
+    static let deleteAccount        = URL(string: R.string.localizable.url_delete_account())!
+    static let disappearingMessage  = URL(string: R.string.localizable.url_disappearing_message())!
+    static let deposit              = URL(string: R.string.localizable.url_deposit())!
+    static let depositSuspended     = URL(string: R.string.localizable.url_deposit_suspended())!
+    static let forgetPIN            = URL(string: R.string.localizable.url_forget_pin())!
+    static let apiUpgrade           = URL(string: R.string.localizable.url_api_upgrade())!
+    static let cantReceiveOTP       = URL(string: R.string.localizable.url_cant_receive_otp())!
+    static let recallMessage        = URL(string: R.string.localizable.url_recall_message())!
+    static let support              = URL(string: R.string.localizable.url_support())!
+    static let watchWallet          = URL(string: R.string.localizable.url_watch_wallet())!
+    static let whatIsPIN            = URL(string: R.string.localizable.url_what_is_pin())!
+    static let lightningAddress     = URL(string: R.string.localizable.url_lightning_address())!
+    static let crossWalletTransactionFree = URL(string: R.string.localizable.url_cross_wallet_transaction_free())!
+    static let learnAboutSafe       = URL(string: R.string.localizable.safe_learn_more_url())!
+    static let createSafeGuide      = URL(string: R.string.localizable.safe_create_guideline_url())!
+    static let privacyWallet        = URL(string: R.string.localizable.url_privacy_wallet())!
+    static let commonWallet         = URL(string: R.string.localizable.url_classic_wallet())!
+    static let importWallet         = URL(string: R.string.localizable.url_import_wallet())!
+    static let recoveryKit          = URL(string: R.string.localizable.url_recovery_kit())!
+    static let perpsTakeProfit      = URL(string: R.string.localizable.url_perps_take_profit())!
+    static let perpsStopLoss        = URL(string: R.string.localizable.url_perps_stop_loss())!
+    
+    static func bindReferral(code: String) -> String {
+        "https://mixin.one/referrals/" + code
+    }
+    
+    func getKeyVals() -> [String: String] {
+        return URLComponents(url: self, resolvingAgainstBaseURL: true)?.getKeyVals() ?? [:]
+    }
 
-    func getKeyVals() -> Dictionary<String, String>? {
+    var fileExists: Bool {
+        return (try? checkResourceIsReachable()) ?? false
+    }
+    
+    var fileSize: Int64 {
+        return (try? resourceValues(forKeys: [.fileSizeKey]))?.allValues[.fileSizeKey] as? Int64 ?? -1
+    }
+
+    static func createTempUrl(fileExtension: String) -> URL {
+        return URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(UUID().uuidString.lowercased()).\(fileExtension)")
+    }
+
+    var childFileCount: Int {
+        guard FileManager.default.directoryExists(atPath: path) else {
+            return 0
+        }
+        guard let files = try? FileManager.default.contentsOfDirectory(atPath: path) else {
+            return 0
+        }
+        return files.count
+    }
+    
+    var isStoredCloud: Bool {
+        return FileManager.default.isUbiquitousItem(at: self)
+    }
+    
+}
+
+extension URL {
+    
+    func suffix(base: URL) -> String {
+        return String(path.suffix(path.count - base.path.count))
+    }
+}
+
+extension URLComponents {
+
+    func getKeyVals() -> [String: String] {
         var results = [String: String]()
-        if let components = URLComponents(url: self, resolvingAgainstBaseURL: true), let queryItems = components.queryItems {
-            for item in queryItems {
+        if let items = queryItems {
+            for item in items {
                 results.updateValue(item.value ?? "", forKey: item.name)
             }
         }
         return results
     }
 
-    static func createTempUrl(fileExtension: String) -> URL {
-        return URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(UUID().uuidString.lowercased()).\(fileExtension)")
-    }
 }

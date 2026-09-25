@@ -1,0 +1,274 @@
+import UIKit
+import MixinServices
+
+class CircleEditorViewController: PeerViewController<[CircleMember], CheckmarkPeerCell, CircleMemberSearchResult> {
+    
+    override class var showSelectionsOnTop: Bool {
+        true
+    }
+    
+    private var name = ""
+    private var circleId = ""
+
+    private var oldMembers = Set<CircleMember>()
+    private var selections: [CircleMember] = [] {
+        didSet {
+            titleView.subtitle = R.string.localizable.circle_subtitle_count(selections.count)
+        }
+    }
+    
+    private weak var titleView: NavigationTitleView!
+    
+    class func instance(name: String, circleId: String, isNewCreatedCircle: Bool) -> UIViewController {
+        let editor = CircleEditorViewController()
+        editor.name = name
+        editor.circleId = circleId
+        let navigationController = GeneralAppearanceNavigationController(rootViewController: editor)
+        return navigationController
+    }
+    
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        let titleView = NavigationTitleView(title: name)
+        self.titleView = titleView
+        navigationItem.titleView = titleView
+        navigationItem.leftBarButtonItem = .tintedIcon(image: R.image.ic_title_close(), target: self, action: #selector(close(_:)))
+        navigationItem.rightBarButtonItem = .button(title: R.string.localizable.save(), target: self, action: #selector(save(_:)))
+        tableView.allowsMultipleSelection = true
+        collectionView.dataSource = self
+        let circleId = self.circleId
+        DispatchQueue.global().async { [weak self] in
+            let members = CircleDAO.shared.circleMembers(circleId: circleId)
+            DispatchQueue.main.sync {
+                guard let self = self else {
+                    return
+                }
+                self.selections = members
+                self.oldMembers = Set<CircleMember>(members)
+                self.collectionView.reloadData()
+                self.reloadTableViewSelections()
+                self.setCollectionViewHidden(members.isEmpty, animated: false)
+            }
+        }
+    }
+    
+    override func catalog(users: [UserItem]) -> (titles: [String], models: [[CircleMember]]) {
+        let conversations = ConversationDAO.shared.conversationList()
+            .compactMap(CircleMember.init)
+        let presentedUserIds = conversations
+            .filter({ $0.category == ConversationCategory.CONTACT.rawValue })
+            .map({ $0.userId })
+        let presentedUserIdSet = Set(presentedUserIds)
+        var contacts = [UserItem]()
+        var apps = [UserItem]()
+        for user in users.filter({ !presentedUserIdSet.contains($0.userId) }) {
+            if user.isBot {
+                apps.append(user)
+            } else {
+                contacts.append(user)
+            }
+        }
+        let titles = [
+            R.string.localizable.recent_chats(),
+            R.string.localizable.contact_title(),
+            R.string.localizable.bots_title()
+        ]
+        let models = [
+            conversations,
+            contacts.map(CircleMember.init),
+            apps.map(CircleMember.init),
+        ]
+        return (titles, models)
+    }
+    
+    override func search(keyword: String) {
+        queue.operations
+            .filter({ $0 != initDataOperation })
+            .forEach({ $0.cancel() })
+        let op = BlockOperation()
+        let members = self.models
+        op.addExecutionBlock { [unowned op, weak self] in
+            guard self != nil, !op.isCancelled else {
+                return
+            }
+            let uniqueMembers = Set(members.flatMap({ $0 }))
+            let searchResults = uniqueMembers
+                .filter { $0.matches(lowercasedKeyword: keyword) }
+                .map { CircleMemberSearchResult(member: $0, keyword: keyword) }
+            DispatchQueue.main.sync {
+                guard let weakSelf = self, !op.isCancelled else {
+                    return
+                }
+                weakSelf.searchingKeyword = keyword
+                weakSelf.searchResults = [searchResults]
+                weakSelf.tableView.reloadData()
+                weakSelf.reloadTableViewSelections()
+            }
+        }
+        queue.addOperation(op)
+    }
+    
+    override func configure(cell: CheckmarkPeerCell, at indexPath: IndexPath) {
+        if isSearching {
+            cell.render(result: searchResults[indexPath.section][indexPath.row])
+        } else {
+            cell.render(member: models[indexPath.section][indexPath.row])
+        }
+    }
+    
+    override func reloadTableViewSelections() {
+        super.reloadTableViewSelections()
+        if isSearching {
+            enumerateSearchResults { result, indexPath, _ in
+                if selections.contains(result.member) {
+                    tableView.selectRow(at: indexPath, animated: false, scrollPosition: .none)
+                }
+            }
+        } else {
+            for section in 0..<models.count {
+                for indexPath in indexPathsWhichMatchSelections(of: section) {
+                    tableView.selectRow(at: indexPath, animated: false, scrollPosition: .none)
+                }
+            }
+        }
+    }
+    
+    // MARK: - UITableViewDataSource
+    override func numberOfSections(in tableView: UITableView) -> Int {
+        return isSearching ? 1 : models.count
+    }
+    
+    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        return isSearching ? searchResults[section].count : models[section].count
+    }
+    
+    // MARK: - UITableViewDelegate
+    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        let member = circleMember(at: indexPath)
+        let indexPath = IndexPath(item: selections.count, section: 0)
+        selections.append(member)
+        collectionView.insertItems(at: [indexPath])
+        self.setCollectionViewHidden(false, animated: true)
+    }
+    
+    override func tableView(_ tableView: UITableView, didDeselectRowAt indexPath: IndexPath) {
+        let member = circleMember(at: indexPath)
+        if let index = selections.firstIndex(of: member) {
+            let indexPath = IndexPath(item: index, section: 0)
+            removeSelection(at: indexPath)
+        }
+    }
+    
+    @objc private func close(_ sender: Any) {
+        presentingViewController?.dismiss(animated: true, completion: nil)
+    }
+    
+    @objc private func save(_ sender: Any) {
+        let hud = Hud()
+        hud.show(style: .busy, text: "")
+
+        let newMembers = Set<CircleMember>(selections)
+        let intersectMembers = oldMembers.intersection(newMembers)
+        let addMembers = newMembers.subtracting(intersectMembers).map { CircleConversationRequest.create(action: .ADD, member: $0) }
+        let removeMembers = oldMembers.subtracting(intersectMembers).map { CircleConversationRequest.create(action: .REMOVE, member: $0) }
+
+        let requests = addMembers + removeMembers
+        let circleId = self.circleId
+        CircleAPI.updateCircle(of: circleId, requests: requests) { (result) in
+            switch result {
+            case let .success(circles):
+                DispatchQueue.global().async {
+                    CircleConversationDAO.shared.save(circleId: circleId, objects: circles, sendNotificationAfterFinished: false)
+                    CircleConversationDAO.shared.delete(circleId: circleId, conversationIds: removeMembers.map { $0.conversationId })
+                    DispatchQueue.main.sync {
+                        hud.set(style: .notification, text: R.string.localizable.saved())
+                        hud.scheduleAutoHidden()
+                        self.dismiss(animated: true, completion: nil)
+                    }
+                }
+            case .failure(let error):
+                hud.set(style: .error, text: error.localizedDescription)
+                hud.scheduleAutoHidden()
+            }
+        }
+    }
+    
+}
+
+extension CircleEditorViewController: UICollectionViewDataSource {
+    
+    func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
+        selections.count
+    }
+    
+    func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
+        let cell = collectionView.dequeueReusableCell(withReuseIdentifier: selectedPeerReuseID, for: indexPath) as! SelectedPeerCell
+        let member = selections[indexPath.row]
+        cell.render(member: member)
+        cell.delegate = self
+        return cell
+    }
+    
+}
+
+extension CircleEditorViewController: SelectedItemCellDelegate {
+    
+    func selectedItemCellDidSelectRemove(_ cell: UICollectionViewCell) {
+        guard let indexPath = collectionView.indexPath(for: cell) else {
+            return
+        }
+        let member = selections[indexPath.row]
+        let tableViewIndexPath: IndexPath? = {
+            if isSearching {
+                var memberIndexPath: IndexPath?
+                enumerateSearchResults { result, indexPath, stop in
+                    if result.member == member {
+                        memberIndexPath = indexPath
+                        stop = true
+                    }
+                }
+                return memberIndexPath
+            } else {
+                for section in 0..<models.count {
+                    let members = models[section]
+                    if let row = members.firstIndex(of: member) {
+                        return IndexPath(row: row, section: section)
+                    }
+                }
+                return nil
+            }
+        }()
+        if let indexPath = tableViewIndexPath {
+            tableView.deselectRow(at: indexPath, animated: true)
+        }
+        removeSelection(at: indexPath)
+    }
+    
+}
+
+extension CircleEditorViewController {
+    
+    private func indexPathsWhichMatchSelections(of section: Int) -> [IndexPath] {
+        assert(!isSearching)
+        var indexPaths = [IndexPath]()
+        for (row, member) in models[section].enumerated() where selections.contains(member) {
+            indexPaths.append(IndexPath(row: row, section: section))
+        }
+        return indexPaths
+    }
+    
+    private func circleMember(at indexPath: IndexPath) -> CircleMember {
+        if isSearching {
+            return searchResults[indexPath.section][indexPath.row].member
+        } else {
+            return models[indexPath.section][indexPath.row]
+        }
+    }
+    
+    private func removeSelection(at indexPath: IndexPath) {
+        selections.remove(at: indexPath.item)
+        collectionView.deleteItems(at: [indexPath])
+        setCollectionViewHidden(selections.isEmpty, animated: true)
+    }
+    
+}

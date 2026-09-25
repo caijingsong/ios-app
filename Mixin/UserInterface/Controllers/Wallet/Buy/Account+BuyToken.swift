@@ -1,0 +1,32 @@
+import Foundation
+import MixinServices
+
+extension Account {
+    
+    var isPhoneVerificationValid: Bool {
+        if let verifiedAt = phoneVerifiedAt,
+           let date = DateFormatter.iso8601Full.date(from: verifiedAt)
+        {
+            -date.timeIntervalSinceNow <= 60 * .day
+        } else {
+            false
+        }
+    }
+    
+    func checkBuyTokenEligibility(
+        onEligible: () -> Void,
+        onVerificationNeeded: (PopupTipViewController) -> Void,
+    ) {
+        if isAnonymous {
+            UserOperationAnalytics.addMobileNumberSource = .buyGuide
+            let tip = PopupTipViewController(tip: .addMobileNumber(.buyToken))
+            onVerificationNeeded(tip)
+        } else if isPhoneVerificationValid {
+            onEligible()
+        } else {
+            let tip = PopupTipViewController(tip: .verifyMobileNumber)
+            onVerificationNeeded(tip)
+        }
+    }
+    
+}

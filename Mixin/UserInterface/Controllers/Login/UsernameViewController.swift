@@ -1,45 +1,62 @@
 import UIKit
+import MixinServices
 
-class UsernameViewController: LoginViewController {
-
-    @IBOutlet weak var usernameTextField: UITextField!
-
-    private var username: String {
-        return usernameTextField.text ?? ""
+final class UsernameViewController: LoginInfoInputViewController, CheckSessionEnvironmentChild {
+    
+    init() {
+        super.init(style: .secondary)
     }
-
+    
+    required init?(coder: NSCoder) {
+        fatalError("Storyboard is not supported")
+    }
+    
     override func viewDidLoad() {
         super.viewDidLoad()
-        usernameTextField.text = defaultUsername()
-        usernameTextField.becomeFirstResponder()
-        updateContinueButtonStatusAction(self)
+        navigationItem.rightBarButtonItem = .customerService(
+            target: self,
+            action: #selector(presentCustomerService(_:))
+        )
+        titleLabel.text = R.string.localizable.what_should_friends_call_you()
+        textField.placeholder = R.string.localizable.username_placeholder()
+        textField.delegate = self
+        descriptionLabel.text = R.string.localizable.username_description()
+        editingChangedAction(self)
+        textField.becomeFirstResponder()
+        reporter.report(event: .signUpFullname)
+        if let name = makeDefaultUsername() {
+            textField.text = name
+            textField.selectAll(nil)
+        }
     }
     
-    @IBAction func updateContinueButtonStatusAction(_ sender: Any) {
-        continueButton.isEnabled = !username.isEmpty
-    }
-    
-    override func continueAction(_ sender: Any) {
+    override func continueToNext(_ sender: Any) {
         continueButton.isBusy = true
-        AccountAPI.shared.update(fullName: username) { [weak self] (account) in
-            guard let weakSelf = self else {
-                return
-            }
-            weakSelf.continueButton.isBusy = false
+        AccountAPI.update(fullName: trimmedText) { [weak self] (account) in
+            self?.continueButton.isBusy = false
             switch account {
             case let .success(account):
-                AccountAPI.shared.account = account
-                DispatchQueue.global().async {
-                    UserDAO.shared.updateAccount(account: account)
+                LoginManager.shared.setAccount(account)
+                self?.checkSessionEnvironmentAgain(freshAccount: account)
+            case let .failure(error):
+                Logger.login.error(category: "Set Username", message: "Failed: \(error)")
+                if error.worthReporting {
+                    reporter.report(error: error)
                 }
-                AppDelegate.current.window?.rootViewController = makeInitialViewController()
-            case .failure:
-                break
+                showAutoHiddenHud(style: .error, text: error.localizedDescription)
             }
         }
     }
-
-    private func defaultUsername() -> String? {
+    
+    @objc func presentCustomerService(_ sender: Any) {
+        let customerService = CustomerServiceViewController(
+            presentLoginLogsOnLongPressingTitle: true,
+            reportingTags: ["source": "username"],
+        )
+        present(customerService, animated: true)
+    }
+    
+    private func makeDefaultUsername() -> String? {
         let name = UIDevice.current.name
         let deviceName: String
         if name.range(of: "iPhone") != nil {
@@ -72,8 +89,13 @@ class UsernameViewController: LoginViewController {
         return nil
     }
     
-    static func instance() -> UsernameViewController {
-        return Storyboard.login.instantiateViewController(withIdentifier: "Username") as! UsernameViewController
+}
+
+extension UsernameViewController: UITextFieldDelegate {
+    
+    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+        continueToNext(textField)
+        return false
     }
     
 }

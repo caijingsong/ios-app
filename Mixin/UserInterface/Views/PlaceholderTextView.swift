@@ -10,7 +10,7 @@ class PlaceholderTextView: UITextView {
             guard let key = local_placeholder, !key.isEmpty else {
                 return
             }
-            let localText = LocalizedString(key, comment: key)
+            let localText = NSLocalizedString(key, comment: key)
             if localText != placeholder {
                 self.placeholder = localText
             }
@@ -21,6 +21,12 @@ class PlaceholderTextView: UITextView {
     var placeholder: String? {
         didSet {
             placeholderLabel.text = placeholder
+        }
+    }
+    
+    var placeholderPadding: UIEdgeInsets = .zero {
+        didSet {
+            placeholderLabel.frame = bounds.inset(by: placeholderPadding)
         }
     }
     
@@ -59,11 +65,12 @@ class PlaceholderTextView: UITextView {
     
     private func prepare() {
         insertSubview(placeholderLabel, at: 0)
-        placeholderLabel.frame = bounds
+        placeholderLabel.frame = bounds.inset(by: placeholderPadding)
         placeholderLabel.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        placeholderLabel.textColor = .placeholder
+        placeholderLabel.textColor = R.color.text_quaternary()
         placeholderLabel.textAlignment = textAlignment
         placeholderLabel.font = font
+        placeholderLabel.adjustsFontForContentSizeCategory = adjustsFontForContentSizeCategory
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(textViewDidChange(_:)),
                                                name: UITextView.textDidChangeNotification,

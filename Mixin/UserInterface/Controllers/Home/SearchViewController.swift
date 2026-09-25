@@ -1,240 +1,536 @@
 import UIKit
+import Alamofire
+import GRDB
+import MixinServices
 
-class SearchViewController: UIViewController {
-
-    @IBOutlet weak var keywordTextField: UITextField!
-    @IBOutlet weak var cancelButton: UIButton!
+class SearchViewController: UIViewController, HomeSearchViewController {
+    
     @IBOutlet weak var tableView: UITableView!
+    @IBOutlet weak var recentAppsContainerView: UIView!
     
-    @IBOutlet weak var navigationBarContentHeightConstraint: NSLayoutConstraint!
+    let cancelButton = SearchCancelButton()
     
-    @IBOutlet var beforePresentingConstraints: [NSLayoutConstraint]!
-    @IBOutlet var afterPresentingConstraints: [NSLayoutConstraint]!
-    
-    private let searchImageView = UIImageView(image: #imageLiteral(resourceName: "ic_search"))
-    private let headerReuseId = "SearchSectionHeader"
-    private let contactCellReuseId = "ContactCell"
-    private let conversationCellReuseId = "ConversationCell"
-    private let headerHeight: CGFloat = 28
-    
-    private var allContacts = [UserItem]()
-    private var users = [UserItem]()
-    private var assets = [AssetItem]()
-    private var conversations = [ConversationItem]()
-    private var searchQueue = OperationQueue()
-    private var contactsLoadingQueue = OperationQueue()
-    private var isPresenting = false
-    
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        searchQueue.maxConcurrentOperationCount = 1
-        contactsLoadingQueue.maxConcurrentOperationCount = 1
-        tableView.register(GeneralTableViewHeader.self, forHeaderFooterViewReuseIdentifier: headerReuseId)
-        tableView.register(UINib(nibName: "SearchResultContactCell", bundle: .main), forCellReuseIdentifier: contactCellReuseId)
-        tableView.register(UINib(nibName: "ConversationCell", bundle: .main), forCellReuseIdentifier: conversationCellReuseId)
-        tableView.register(UINib(nibName: "WalletAssetCell", bundle: .main), forCellReuseIdentifier: WalletAssetCell.cellIdentifier)
-        tableView.tableFooterView = UIView()
-        tableView.contentInset.top = navigationBarContentHeightConstraint.constant
-        tableView.dataSource = self
-        tableView.delegate = self
-        NotificationCenter.default.addObserver(self, selector: #selector(contactsDidChange(_:)), name: .ContactsDidChange, object: nil)
+    var wantsNavigationSearchBox: Bool {
+        return true
     }
+    
+    var navigationSearchBoxInsets: UIEdgeInsets {
+        return UIEdgeInsets(top: 0, left: 20, bottom: 0, right: cancelButton.frame.width + cancelButtonRightMargin)
+    }
+    
+    private let resultLimit = 3
+    
+    private var queue = OperationQueue()
+    private var quickAccess: QuickAccessSearchResult?
+    private var maoUser: MAONameSearchResult?
+    private var assets = [AssetSearchResult]()
+    private var users = [SearchResult]()
+    private var conversationsByName = [SearchResult]()
+    private var conversationsByMessage = [SearchResult]()
+    private var lastKeyword: String?
+    private var recentAppsViewController: RecentAppsViewController?
+    private var lastSearchFieldText: String?
+    private var snapshot: DatabaseSnapshot?
+    
+    private weak var maoNameSearchRequest: Request?
     
     deinit {
         NotificationCenter.default.removeObserver(self)
     }
-
-    @IBAction func searchAction(_ sender: Any) {
-        let keyword = self.keyword
-        searchQueue.cancelAllOperations()
-        if keyword.isEmpty {
-            showContacts()
-        } else {
-            searchQueue.addOperation {
-                let assets = AssetDAO.shared.searchAssets(content: keyword)
-                let users = UserDAO.shared.getUsers(nameOrPhone: keyword)
-                let messages = ConversationDAO.shared.searchConversation(content: keyword)
-                DispatchQueue.main.async {
-                    self.assets = assets
-                    self.users = users
-                    self.conversations = messages
-                    self.tableView.reloadData()
-                }
-            }
-        }
-    }
-
-    func prepare() {
-        reloadContacts()
-    }
     
-    func present() {
-        prepareForReuse()
-        isPresenting = true
-        beforePresentingConstraints.forEach {
-            $0.priority = .defaultLow
-        }
-        afterPresentingConstraints.forEach {
-            $0.priority = .defaultHigh
-        }
-        showContacts()
-        keywordTextField.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        UIView.animate(withDuration: 0.3, animations: {
-            self.view.layoutIfNeeded()
-        }) { (_) in
-            self.keywordTextField.becomeFirstResponder()
+    override func prepare(for segue: UIStoryboardSegue, sender: Any?) {
+        super.prepare(for: segue, sender: sender)
+        if let vc = segue.destination as? RecentAppsViewController {
+            recentAppsViewController = vc
         }
     }
     
-    func dismiss() {
-        isPresenting = false
-        keywordTextField.resignFirstResponder()
-        searchQueue.cancelAllOperations()
-        contactsLoadingQueue.cancelAllOperations()
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        queue.maxConcurrentOperationCount = 1
+        navigationItem.title = ""
+        navigationItem.rightBarButtonItem = UIBarButtonItem(customView: cancelButton)
+        tableView.register(SearchHeaderView.self,
+                           forHeaderFooterViewReuseIdentifier: ReuseId.header)
+        tableView.register(SearchFooterView.self,
+                           forHeaderFooterViewReuseIdentifier: ReuseId.footer)
+        tableView.register(R.nib.maoNameSearchResultCell)
+        tableView.register(R.nib.peerCell)
+        tableView.register(R.nib.assetCell)
+        tableView.register(R.nib.quickAccessResultCell)
+        let tableHeaderView = UIView()
+        tableHeaderView.frame = CGRect(x: 0, y: 0, width: 0, height: CGFloat.leastNormalMagnitude)
+        tableView.tableHeaderView = tableHeaderView
+        tableView.dataSource = self
+        tableView.delegate = self
     }
     
-    @objc func contactsDidChange(_ notification: Notification) {
-        reloadContacts()
-    }
-    
-    class func instance() -> SearchViewController {
-        return Storyboard.home.instantiateViewController(withIdentifier: "search") as! SearchViewController
-    }
-    
-    private var keyword: String {
-        return keywordTextField.text ?? ""
-    }
-    
-    private func reloadContacts() {
-        contactsLoadingQueue.cancelAllOperations()
-        contactsLoadingQueue.addOperation {
-            let allContacts = UserDAO.shared.contacts()
-            DispatchQueue.main.async {
-                self.allContacts = allContacts
-                if self.isPresenting && self.keyword.isEmpty {
-                    self.tableView.reloadData()
-                }
-            }
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        searchTextField.addTarget(self, action: #selector(searchAction(_:)), for: .editingChanged)
+        navigationSearchBoxView.isBusy = !queue.operations.isEmpty
+        if let text = lastSearchFieldText {
+            searchTextField.text = text
         }
     }
     
-    private func showContacts() {
-        if allContacts.isEmpty {
-            reloadContacts()
-        } else {
-            tableView.reloadData()
-        }
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        searchTextField.removeTarget(self, action: #selector(searchAction(_:)), for: .editingChanged)
+        lastSearchFieldText = searchTextField.text
     }
     
-    private func prepareForReuse() {
-        keywordTextField.text = nil
-        users = []
-        assets = []
-        conversations = []
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        guard traitCollection.preferredContentSizeCategory != previousTraitCollection?.preferredContentSizeCategory else {
+            return
+        }
+        [users, conversationsByName, conversationsByMessage]
+            .flatMap({ $0 })
+            .forEach({ $0.updateTitleAndDescription() })
         tableView.reloadData()
-        tableView.contentOffset.y = -tableView.contentInset.top
-        beforePresentingConstraints.forEach {
-            $0.priority = .defaultHigh
-        }
-        afterPresentingConstraints.forEach {
-            $0.priority = .defaultLow
-        }
-        keywordTextField.setContentHuggingPriority(.defaultHigh, for: .horizontal)
-        view.layoutIfNeeded()
     }
+    
+    @IBAction func searchAction(_ sender: Any) {
+        guard let keyword = trimmedKeyword else {
+            cancelOperation()
+            maoNameSearchRequest?.cancel()
+            showRecentApps()
+            lastKeyword = nil
+            navigationSearchBoxView.isBusy = false
+            return
+        }
+        guard keyword != lastKeyword else {
+            navigationSearchBoxView.isBusy = false
+            return
+        }
+        cancelOperation()
+        quickAccess?.cancelPreviousPerformRequest()
+        maoNameSearchRequest?.cancel()
+        let limit = self.resultLimit + 1 // Query 1 more object to see if there's more objects than the limit
+        let op = BlockOperation()
+        op.addExecutionBlock { [unowned op] in
+            Thread.sleep(forTimeInterval: 0.5)
+            guard !op.isCancelled else {
+                return
+            }
+            
+            let quickAccess = QuickAccessSearchResult(keyword: keyword)
+            let assets = TokenDAO.shared.search(
+                keyword: keyword,
+                includesZeroBalanceItems: false,
+                sorting: true,
+                limit: limit
+            ).map { token in
+                AssetSearchResult(asset: token, keyword: keyword)
+            }
+            guard !op.isCancelled else {
+                return
+            }
+            
+            switch quickAccess?.content {
+            case .number:
+                break
+            case .link, .none:
+                let name = if keyword.hasSuffix(".mao") {
+                    String(keyword[keyword.startIndex..<keyword.index(keyword.endIndex, offsetBy: -4)])
+                } else {
+                    keyword
+                }
+                let range = NSRange(name.startIndex..<name.endIndex, in: name)
+                if let regex = try? NSRegularExpression(pattern: #"^[^\sA-Z]{1,128}$"#),
+                   regex.firstMatch(in: name, range: range) != nil,
+                   let encodedKeyword = keyword.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+                   !op.isCancelled
+                {
+                    DispatchQueue.main.sync {
+                        self.maoNameSearchRequest = UserAPI.search(keyword: encodedKeyword) { [weak self] result in
+                            switch result {
+                            case .failure(let error):
+                                Logger.general.debug(category: "Search", message: "\(error)")
+                            case .success(let response):
+                                guard let self, self.trimmedKeyword == keyword else {
+                                    return
+                                }
+                                self.maoUser = MAONameSearchResult(keyword: keyword, name: name, response: response)
+                                var sections = IndexSet(integer: Section.maoUser.rawValue)
+                                let firstNotEmptySectionAfterMAOUser = Section.allCases.filter { section in
+                                    section.rawValue > Section.maoUser.rawValue
+                                }.first { section in
+                                    !self.isEmptySection(section)
+                                }
+                                if let section = firstNotEmptySectionAfterMAOUser {
+                                    // Update the header
+                                    sections.insert(section.rawValue)
+                                }
+                                UIView.performWithoutAnimation {
+                                    self.tableView.reloadSections(sections, with: .none)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            let users = UserDAO.shared.getUsers(keyword: keyword, limit: limit)
+                .map { UserSearchResult(user: $0, keyword: keyword) }
+            guard !op.isCancelled else {
+                return
+            }
 
+            let conversationsByName = ConversationDAO.shared.getGroupOrStrangerConversation(withNameLike: keyword, limit: limit)
+                .map { ConversationSearchResult(conversation: $0, keyword: keyword) }
+            guard !op.isCancelled else {
+                return
+            }
+            DispatchQueue.main.sync {
+                self.quickAccess = quickAccess
+                if self.maoUser?.keyword != keyword {
+                    self.maoUser = nil
+                }
+                self.assets = assets
+                self.users = users
+                self.conversationsByName = conversationsByName
+                self.conversationsByMessage = []
+                self.tableView.reloadData()
+                self.showSearchResults()
+                self.lastKeyword = keyword
+            }
+            
+            let conversationsByMessage: [MessagesWithinConversationSearchResult]
+            self.snapshot = try? UserDatabase.current.makeSnapshot()
+            if let snapshot = self.snapshot {
+                conversationsByMessage = ConversationDAO.shared.getConversation(from: snapshot, with: keyword, limit: limit)
+            } else {
+                conversationsByMessage = []
+            }
+            self.snapshot = nil
+            
+            guard !op.isCancelled else {
+                return
+            }
+            DispatchQueue.main.sync {
+                self.conversationsByMessage = conversationsByMessage
+                UIView.performWithoutAnimation {
+                    self.tableView.reloadSections(Section.conversation.indexSet, with: .none)
+                }
+                if !op.isCancelled {
+                    self.navigationSearchBoxView.isBusy = false
+                }
+            }
+        }
+        queue.addOperation(op)
+        navigationSearchBoxView.isBusy = true
+    }
+    
+    func prepareForReuse() {
+        cancelOperation()
+        showRecentApps()
+        quickAccess = nil
+        maoUser = nil
+        assets = []
+        users = []
+        conversationsByName = []
+        conversationsByMessage = []
+        tableView.reloadData()
+        lastKeyword = nil
+        if let navigationController = navigationController as? SearchNavigationViewController {
+            navigationController.viewControllers.removeAll(where: { $0 != self })
+            navigationController.searchNavigationBar.layoutSearchBoxView(insets: navigationSearchBoxInsets)
+        }
+        lastSearchFieldText = nil
+        searchTextField.text = nil
+        navigationSearchBoxView.isBusy = false
+    }
+    
+    func willHide() {
+        quickAccess?.cancelPreviousPerformRequest()
+    }
+    
 }
 
 extension SearchViewController: UITableViewDataSource {
-
-    func numberOfSections(in tableView: UITableView) -> Int {
-        guard !keyword.isEmpty else {
-            return 1
-        }
-        return (assets.count > 0 ? 1 : 0) + (users.count > 0 ? 1 : 0) + (conversations.count > 0 ? 1 : 0)
-    }
-
+    
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        if keyword.isEmpty {
-            return allContacts.count
-        } else {
-            if assets.count > 0 && section == 0 {
-                return assets.count
-            } else if users.count > 0 && (section == 0 || (assets.count > 0 && section == 1)) {
-                return users.count
-            } else {
-                return conversations.count
-            }
+        switch Section(rawValue: section)! {
+        case .quickAccess:
+            quickAccess == nil ? 0 : 1
+        case .maoUser:
+            maoUser == nil ? 0 : 1
+        case .asset:
+            min(resultLimit, assets.count)
+        case .user:
+            min(resultLimit, users.count)
+        case .group:
+            min(resultLimit, conversationsByName.count)
+        case .conversation:
+            min(resultLimit, conversationsByMessage.count)
         }
     }
     
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        if keyword.isEmpty {
-            let cell = tableView.dequeueReusableCell(withIdentifier: contactCellReuseId, for: indexPath) as! SearchResultContactCell
-            cell.render(user: allContacts[indexPath.row])
+        switch Section(rawValue: indexPath.section)! {
+        case .quickAccess:
+            let cell = tableView.dequeueReusableCell(withIdentifier: R.reuseIdentifier.quick_access, for: indexPath)!
+            cell.result = quickAccess
             return cell
-        } else {
-            let section = indexPath.section
-            if section == 0 && assets.count > 0 {
-                let cell = tableView.dequeueReusableCell(withIdentifier: WalletAssetCell.cellIdentifier, for: indexPath) as! WalletAssetCell
-                cell.accessoryType = .none
-                cell.render(asset: assets[indexPath.row])
-                return cell
-            } else if users.count > 0 && (section == 0 || (assets.count > 0 && section == 1)) {
-                let cell = tableView.dequeueReusableCell(withIdentifier: contactCellReuseId, for: indexPath) as! SearchResultContactCell
-                cell.render(user: users[indexPath.row])
-                return cell
-            } else {
-                let cell = tableView.dequeueReusableCell(withIdentifier: conversationCellReuseId, for: indexPath) as! ConversationCell
-                cell.render(item: conversations[indexPath.row])
-                return cell
+        case .maoUser:
+            let cell = tableView.dequeueReusableCell(withIdentifier: R.reuseIdentifier.mao_name_search_result, for: indexPath)!
+            if let result = maoUser {
+                cell.load(result: result)
             }
+            return cell
+        case .asset:
+            let cell = tableView.dequeueReusableCell(withIdentifier: R.reuseIdentifier.asset, for: indexPath)!
+            let result = assets[indexPath.row]
+            cell.render(token: result.asset, attributedSymbol: result.attributedSymbol)
+            return cell
+        case .user:
+            let cell = tableView.dequeueReusableCell(withIdentifier: R.reuseIdentifier.peer, for: indexPath)!
+            cell.render(result: users[indexPath.row])
+            return cell
+        case .group:
+            let cell = tableView.dequeueReusableCell(withIdentifier: R.reuseIdentifier.peer, for: indexPath)!
+            cell.render(result: conversationsByName[indexPath.row])
+            return cell
+        case .conversation:
+            let cell = tableView.dequeueReusableCell(withIdentifier: R.reuseIdentifier.peer, for: indexPath)!
+            cell.render(result: conversationsByMessage[indexPath.row])
+            return cell
         }
     }
+    
+    func numberOfSections(in tableView: UITableView) -> Int {
+        Section.allCases.count
+    }
+    
 }
 
 extension SearchViewController: UITableViewDelegate {
     
+    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        switch Section(rawValue: indexPath.section)! {
+        case .quickAccess:
+            UITableView.automaticDimension
+        case .maoUser:
+            MAONameSearchResultCell.height
+        case .asset, .user, .group, .conversation:
+            PeerCell.height
+        }
+    }
+    
     func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
-        if keyword.isEmpty {
-            return headerHeight
-        } else {
-            return assets.count > 0 || users.count > 0 || conversations.count > 0 ? headerHeight : .leastNormalMagnitude
+        let section = Section(rawValue: section)!
+        switch section {
+        case .quickAccess, .maoUser:
+            return .leastNormalMagnitude
+        case .asset, .user, .group, .conversation:
+            if isEmptySection(section) {
+                return .leastNormalMagnitude
+            } else {
+                return SearchHeaderView.height(isFirstSection: isFirstSection(section))
+            }
+        }
+    }
+    
+    func tableView(_ tableView: UITableView, heightForFooterInSection section: Int) -> CGFloat {
+        let section = Section(rawValue: section)!
+        switch section {
+        case .quickAccess, .maoUser:
+            return .leastNormalMagnitude
+        case .asset, .user, .group, .conversation:
+            return isEmptySection(section) ? .leastNormalMagnitude : SearchFooterView.height
         }
     }
     
     func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
-        let header = tableView.dequeueReusableHeaderFooterView(withIdentifier: headerReuseId) as! GeneralTableViewHeader
-        if keyword.isEmpty {
-            header.label.text = Localized.SECTION_TITLE_CONTACTS
-        } else {
-            if assets.count > 0 && section == 0 {
-                header.label.text = Localized.SECTION_TITLE_ASSETS
-            } else if users.count > 0 && (section == 0 || (assets.count > 0 && section == 1)) {
-                header.label.text = Localized.SECTION_TITLE_CONTACTS
+        let section = Section(rawValue: section)!
+        switch section {
+        case .quickAccess, .maoUser:
+            return nil
+        case .asset, .user, .group, .conversation:
+            if isEmptySection(section) {
+                return nil
             } else {
-                header.label.text = Localized.SECTION_TITLE_MESSAGES
+                let view = tableView.dequeueReusableHeaderFooterView(withIdentifier: ReuseId.header) as! SearchHeaderView
+                view.isFirstSection = isFirstSection(section)
+                view.label.text = section.title
+                view.button.isHidden = models(forSection: section).count <= resultLimit
+                view.section = section.rawValue
+                view.delegate = self
+                return view
             }
         }
-        return header
+    }
+    
+    func tableView(_ tableView: UITableView, viewForFooterInSection section: Int) -> UIView? {
+        let section = Section(rawValue: section)!
+        switch section {
+        case .quickAccess, .maoUser:
+            return nil
+        case .asset, .user, .group, .conversation:
+            if isEmptySection(section) {
+                return nil
+            } else {
+                return tableView.dequeueReusableHeaderFooterView(withIdentifier: ReuseId.footer)
+            }
+        }
     }
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        if keyword.isEmpty {
-            navigationController?.pushViewController(ConversationViewController.instance(ownerUser: allContacts[indexPath.row]), animated: true)
-        } else {
-            let section = indexPath.section
-            if assets.count > 0 && section == 0 {
-                navigationController?.pushViewController(AssetViewController.instance(asset: assets[indexPath.row]), animated: true)
-            } else if users.count > 0 && (section == 0 || (assets.count > 0 && section == 1)) {
-                navigationController?.pushViewController(ConversationViewController.instance(ownerUser: users[indexPath.row]), animated: true)
-            } else {
-                let conversation = conversations[indexPath.row]
-                let highlight = ConversationDataSource.Highlight(keyword: keyword, messageId: conversation.messageId)
-                let vc = ConversationViewController.instance(conversation: conversation, highlight: highlight)
-                navigationController?.pushViewController(vc, animated: true)
+        searchTextField.resignFirstResponder()
+        switch Section(rawValue: indexPath.section)! {
+        case .quickAccess:
+            quickAccess?.performQuickAccess() { [weak self] item in
+                guard let item else {
+                    return
+                }
+                let profile = UserProfileViewController(user: item)
+                self?.present(profile, animated: true)
             }
+        case .maoUser:
+            if let maoUser, let app = maoUser.app {
+                let web = MixinWebViewController(
+                    context: .init(conversationID: "", app: app, isAppVerified: maoUser.user.isVerified)
+                )
+                homeNavigationController?.pushViewController(web, animated: true)
+            } else if let user = maoUser?.user, user.isCreatedByMessenger {
+                let vc = ConversationViewController.instance(ownerUser: user)
+                homeNavigationController?.pushViewController(vc, animated: true)
+            }
+        case .asset:
+            pushTokenViewController(token: assets[indexPath.row].asset, source: "chat_search")
+        case .user:
+            pushViewController(keyword: trimmedKeyword, result: users[indexPath.row])
+        case .group:
+            pushViewController(keyword: trimmedKeyword, result: conversationsByName[indexPath.row])
+        case .conversation:
+            pushViewController(keyword: trimmedKeyword, result: conversationsByMessage[indexPath.row])
+        }
+    }
+    
+}
+
+extension SearchViewController: SearchHeaderViewDelegate {
+    
+    func searchHeaderViewDidSendMoreAction(_ view: SearchHeaderView) {
+        guard let sectionValue = view.section, let section = Section(rawValue: sectionValue) else {
+            return
+        }
+        let vc = R.storyboard.home.search_category()!
+        switch section {
+        case .quickAccess, .maoUser:
+            return
+        case .asset:
+            vc.category = .asset
+        case .user:
+            vc.category = .user
+        case .group:
+            vc.category = .conversationsByName
+        case .conversation:
+            vc.category = .conversationsByMessage
+        }
+        searchTextField.resignFirstResponder()
+        searchNavigationController?.pushViewController(vc, animated: true)
+    }
+    
+}
+
+extension SearchViewController {
+    
+    private enum ReuseId {
+        static let header = "h"
+        static let footer = "f"
+    }
+    
+    private enum Section: Int, CaseIterable {
+        
+        case quickAccess = 0
+        case maoUser
+        case asset
+        case user
+        case group
+        case conversation
+        
+        var title: String? {
+            switch self {
+            case .quickAccess, .maoUser:
+                nil
+            case .asset:
+                R.string.localizable.assets()
+            case .user:
+                R.string.localizable.contact_title()
+            case .group:
+                R.string.localizable.conversations()
+            case .conversation:
+                R.string.localizable.messages()
+            }
+        }
+        
+        var indexSet: IndexSet {
+            return IndexSet(integer: rawValue)
+        }
+        
+    }
+    
+    private func cancelOperation() {
+        snapshot?.interrupt()
+        snapshot = nil
+        queue.cancelAllOperations()
+    }
+    
+    private func showSearchResults() {
+        tableView.isHidden = false
+        recentAppsContainerView.isHidden = true
+    }
+    
+    private func showRecentApps() {
+        tableView.isHidden = true
+        recentAppsViewController?.reloadIfNeeded()
+        recentAppsContainerView.isHidden = false
+    }
+    
+    private func models(forSection section: Section) -> [Any] {
+        switch section {
+        case .quickAccess, .maoUser:
+            return []
+        case .asset:
+            return assets
+        case .user:
+            return users
+        case .group:
+            return conversationsByName
+        case .conversation:
+            return conversationsByMessage
+        }
+    }
+    
+    private func isEmptySection(_ section: Section) -> Bool {
+        switch section {
+        case .quickAccess:
+            quickAccess == nil
+        case .maoUser:
+            maoUser == nil
+        case .asset, .user, .group, .conversation:
+            models(forSection: section).isEmpty
+        }
+    }
+    
+    private func isFirstSection(_ section: Section) -> Bool {
+        return switch section {
+        case .quickAccess:
+            quickAccess != nil
+        case .maoUser:
+            quickAccess == nil && maoUser != nil
+        case .asset:
+            quickAccess == nil && maoUser == nil
+        case .user:
+            quickAccess == nil && maoUser == nil && assets.isEmpty
+        case .group:
+            quickAccess == nil && maoUser == nil && assets.isEmpty && users.isEmpty
+        case .conversation:
+            quickAccess == nil && maoUser == nil && assets.isEmpty && users.isEmpty && conversationsByName.isEmpty
         }
     }
     

@@ -1,0 +1,53 @@
+import Foundation
+import MixinServices
+
+final class ReviewPendingWeb3TransactionJob: BaseJob {
+    
+    private let walletID: String
+    
+    init(walletID: String) {
+        self.walletID = walletID
+        super.init()
+    }
+    
+    static func jobID(walletID: String) -> String {
+        "review-pending-Web3Txn-\(walletID)"
+    }
+    
+    override func getJobId() -> String {
+        Self.jobID(walletID: walletID)
+    }
+    
+    override func run() throws {
+        var transactions = Web3TransactionDAO.shared.pendingTransactions(walletID: walletID)
+        while LoginManager.shared.isLoggedIn && !transactions.isEmpty && !isCancelled {
+            Logger.web3.debug(category: "ReviewPendingWeb3Txn", message: "\(transactions.count) txns to review")
+            let hashes = transactions.map(\.transactionHash)
+            let rawTransactionsCount = Web3RawTransactionDAO.shared
+                .pendingRawTransactionsCount(hashIn: hashes)
+            
+            if rawTransactionsCount == transactions.count {
+                // All pending txns have a corresponding raw txn
+                // Wait until `ReviewPendingWeb3RawTransactionJob` finishes
+                Logger.web3.debug(category: "ReviewPendingWeb3Txn", message: "Leave \(transactions.count) txns to raw txn reviewer")
+            } else {
+                Logger.web3.debug(category: "ReviewPendingWeb3Txn", message: "\(transactions.count - rawTransactionsCount) txns don't have raw txn, sync it")
+                let jobs = [
+                    RefreshWeb3WalletTokenJob(walletID: walletID),
+                    SyncWeb3TransactionJob(walletID: walletID),
+                ]
+                for job in jobs {
+                    ConcurrentJobQueue.shared.addJob(job: job)
+                }
+            }
+            
+            Thread.sleep(forTimeInterval: 3)
+            if isCancelled {
+                return
+            }
+            transactions = Web3TransactionDAO.shared.pendingTransactions(walletID: walletID)
+        }
+        Logger.web3.info(category: "ReviewPendingWeb3Txn", message: "Ended")
+    }
+    
+}

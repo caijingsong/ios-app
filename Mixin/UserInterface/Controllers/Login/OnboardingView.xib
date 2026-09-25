@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.XIB" version="3.0" toolsVersion="24765" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES">
+    <device id="retina6_12" orientation="portrait" appearance="light"/>
+    <dependencies>
+        <deployment identifier="iOS"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="24743"/>
+        <capability name="Named colors" minToolsVersion="9.0"/>
+        <capability name="Safe area layout guides" minToolsVersion="9.0"/>
+        <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
+    </dependencies>
+    <objects>
+        <placeholder placeholderIdentifier="IBFilesOwner" id="-1" userLabel="File's Owner" customClass="OnboardingViewController" customModule="Mixin" customModuleProvider="target">
+            <connections>
+                <outlet property="actionsBottomConstraint" destination="7Io-Pk-UdV" id="F7U-fq-Jp5"/>
+                <outlet property="collectionView" destination="uDz-Hd-YWg" id="3b7-U2-Lgx"/>
+                <outlet property="pageControl" destination="qhK-QG-aq3" id="VF2-SI-YRJ"/>
+                <outlet property="signInButton" destination="GyF-Ya-ePo" id="CB7-gR-oTQ"/>
+                <outlet property="signUpButton" destination="DL9-pg-F8H" id="xhW-2h-PPf"/>
+                <outlet property="versionLabel" destination="zRN-Yl-wlD" id="TY0-YM-2gi"/>
+                <outlet property="view" destination="iN0-l3-epB" id="18f-cU-3qx"/>
+            </connections>
+        </placeholder>
+        <placeholder placeholderIdentifier="IBFirstResponder" id="-2" customClass="UIResponder"/>
+        <view contentMode="scaleToFill" id="iN0-l3-epB">
+            <rect key="frame" x="0.0" y="0.0" width="393" height="852"/>
+            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+            <subviews>
+                <collectionView clipsSubviews="YES" multipleTouchEnabled="YES" contentMode="scaleToFill" alwaysBounceHorizontal="YES" pagingEnabled="YES" showsHorizontalScrollIndicator="NO" showsVerticalScrollIndicator="NO" bouncesZoom="NO" dataMode="none" translatesAutoresizingMaskIntoConstraints="NO" id="uDz-Hd-YWg">
+                    <rect key="frame" x="0.0" y="0.0" width="393" height="536.66666666666663"/>
+                    <color key="backgroundColor" name="background"/>
+                    <constraints>
+                        <constraint firstAttribute="width" secondItem="uDz-Hd-YWg" secondAttribute="height" multiplier="375:512" priority="750" id="VNj-WP-Jqk"/>
+                    </constraints>
+                    <collectionViewFlowLayout key="collectionViewLayout" scrollDirection="horizontal" minimumLineSpacing="10" minimumInteritemSpacing="10" id="y9h-0K-gEn">
+                        <size key="itemSize" width="128" height="128"/>
+                        <size key="headerReferenceSize" width="0.0" height="0.0"/>
+                        <size key="footerReferenceSize" width="0.0" height="0.0"/>
+                        <inset key="sectionInset" minX="0.0" minY="0.0" maxX="0.0" maxY="0.0"/>
+                    </collectionViewFlowLayout>
+                </collectionView>
+                <pageControl opaque="NO" userInteractionEnabled="NO" contentMode="scaleToFill" contentHorizontalAlignment="center" contentVerticalAlignment="center" numberOfPages="6" translatesAutoresizingMaskIntoConstraints="NO" id="qhK-QG-aq3">
+                    <rect key="frame" x="133.66666666666666" y="550.66666666666663" width="125.99999999999997" height="44"/>
+                    <constraints>
+                        <constraint firstAttribute="height" constant="44" id="Sz4-Nc-0PL"/>
+                    </constraints>
+                    <color key="pageIndicatorTintColor" name="button_background_disabled"/>
+                    <color key="currentPageIndicatorTintColor" name="theme"/>
+                </pageControl>
+                <stackView opaque="NO" contentMode="scaleToFill" axis="vertical" spacing="16" translatesAutoresizingMaskIntoConstraints="NO" id="fRK-Pd-5iu">
+                    <rect key="frame" x="36" y="635.33333333333337" width="321" height="102.66666666666663"/>
+                    <subviews>
+                        <button opaque="NO" contentMode="scaleToFill" contentHorizontalAlignment="center" contentVerticalAlignment="center" buttonType="system" lineBreakMode="middleTruncation" translatesAutoresizingMaskIntoConstraints="NO" id="DL9-pg-F8H">
+                            <rect key="frame" x="0.0" y="0.0" width="321" height="43.333333333333336"/>
+                            <fontDescription key="fontDescription" type="system" weight="medium" pointSize="16"/>
+                            <inset key="contentEdgeInsets" minX="0.0" minY="14" maxX="0.0" maxY="15"/>
+                            <inset key="imageEdgeInsets" minX="0.0" minY="0.0" maxX="2.2250738585072014e-308" maxY="0.0"/>
+                            <state key="normal" title="Create account"/>
+                            <buttonConfiguration key="configuration" style="filled" title="Create account" cornerStyle="capsule">
+                                <fontDescription key="titleFontDescription" type="system" weight="medium" pointSize="16"/>
+                                <directionalEdgeInsets key="contentInsets" top="12" leading="0.0" bottom="12" trailing="0.0"/>
+                                <color key="baseForegroundColor" white="1" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+                                <color key="baseBackgroundColor" name="theme"/>
+                            </buttonConfiguration>
+                            <connections>
+                                <action selector="signUp:" destination="-1" eventType="touchUpInside" id="wV1-Hw-QGI"/>
+                            </connections>
+                        </button>
+                        <button opaque="NO" contentMode="scaleToFill" contentHorizontalAlignment="center" contentVerticalAlignment="center" buttonType="system" lineBreakMode="middleTruncation" translatesAutoresizingMaskIntoConstraints="NO" id="GyF-Ya-ePo">
+                            <rect key="frame" x="0.0" y="59.333333333333258" width="321" height="43.333333333333343"/>
+                            <fontDescription key="fontDescription" type="system" weight="medium" pointSize="16"/>
+                            <inset key="contentEdgeInsets" minX="0.0" minY="14" maxX="0.0" maxY="15"/>
+                            <inset key="imageEdgeInsets" minX="0.0" minY="0.0" maxX="2.2250738585072014e-308" maxY="0.0"/>
+                            <state key="normal" title="I already have an account"/>
+                            <buttonConfiguration key="configuration" style="filled" title="I already have an account" cornerStyle="capsule">
+                                <fontDescription key="titleFontDescription" type="system" weight="medium" pointSize="16"/>
+                                <directionalEdgeInsets key="contentInsets" top="12" leading="0.0" bottom="12" trailing="0.0"/>
+                                <color key="baseForegroundColor" name="theme"/>
+                                <color key="baseBackgroundColor" name="background_quaternary"/>
+                            </buttonConfiguration>
+                            <connections>
+                                <action selector="signIn:" destination="-1" eventType="touchUpInside" id="SXh-69-9nb"/>
+                            </connections>
+                        </button>
+                    </subviews>
+                </stackView>
+                <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="" textAlignment="center" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="zRN-Yl-wlD">
+                    <rect key="frame" x="20" y="776" width="353" height="0.0"/>
+                    <fontDescription key="fontDescription" type="system" pointSize="14"/>
+                    <color key="textColor" name="text_tertiary"/>
+                    <nil key="highlightedColor"/>
+                </label>
+            </subviews>
+            <viewLayoutGuide key="safeArea" id="vUN-kp-3ea"/>
+            <color key="backgroundColor" name="background"/>
+            <constraints>
+                <constraint firstItem="qhK-QG-aq3" firstAttribute="centerX" secondItem="vUN-kp-3ea" secondAttribute="centerX" id="4NI-oR-ram"/>
+                <constraint firstItem="vUN-kp-3ea" firstAttribute="trailing" relation="greaterThanOrEqual" secondItem="fRK-Pd-5iu" secondAttribute="trailing" constant="8" id="6zS-AR-5nN"/>
+                <constraint firstItem="zRN-Yl-wlD" firstAttribute="top" secondItem="fRK-Pd-5iu" secondAttribute="bottom" constant="38" id="7Io-Pk-UdV"/>
+                <constraint firstItem="fRK-Pd-5iu" firstAttribute="leading" secondItem="vUN-kp-3ea" secondAttribute="leading" priority="750" constant="36" id="D1E-3S-m0p"/>
+                <constraint firstItem="zRN-Yl-wlD" firstAttribute="leading" secondItem="vUN-kp-3ea" secondAttribute="leading" constant="20" id="JQH-l4-wjv"/>
+                <constraint firstAttribute="trailing" secondItem="uDz-Hd-YWg" secondAttribute="trailing" id="NCu-R4-7wZ"/>
+                <constraint firstItem="uDz-Hd-YWg" firstAttribute="leading" secondItem="iN0-l3-epB" secondAttribute="leading" id="TNY-D9-9ER"/>
+                <constraint firstItem="vUN-kp-3ea" firstAttribute="bottom" secondItem="zRN-Yl-wlD" secondAttribute="bottom" constant="8" id="WQS-Rk-oiA"/>
+                <constraint firstItem="vUN-kp-3ea" firstAttribute="trailing" secondItem="fRK-Pd-5iu" secondAttribute="trailing" priority="750" constant="36" id="dll-lZ-laf"/>
+                <constraint firstItem="fRK-Pd-5iu" firstAttribute="leading" relation="greaterThanOrEqual" secondItem="vUN-kp-3ea" secondAttribute="leading" constant="8" id="e3P-4J-K3G"/>
+                <constraint firstItem="fRK-Pd-5iu" firstAttribute="top" relation="greaterThanOrEqual" secondItem="qhK-QG-aq3" secondAttribute="bottom" id="fFs-YF-CCA"/>
+                <constraint firstItem="qhK-QG-aq3" firstAttribute="top" secondItem="uDz-Hd-YWg" secondAttribute="bottom" constant="14" id="jIp-ni-Y5R"/>
+                <constraint firstItem="vUN-kp-3ea" firstAttribute="trailing" secondItem="zRN-Yl-wlD" secondAttribute="trailing" constant="20" id="jgM-pq-taV"/>
+                <constraint firstItem="uDz-Hd-YWg" firstAttribute="top" secondItem="iN0-l3-epB" secondAttribute="top" id="qyX-nt-2wN"/>
+            </constraints>
+            <point key="canvasLocation" x="135.38461538461539" y="41.232227488151658"/>
+        </view>
+    </objects>
+    <resources>
+        <namedColor name="background">
+            <color red="1" green="1" blue="1" alpha="1" colorSpace="custom" customColorSpace="displayP3"/>
+        </namedColor>
+        <namedColor name="background_quaternary">
+            <color red="0.96470588235294119" green="0.96862745098039216" blue="0.98039215686274506" alpha="1" colorSpace="custom" customColorSpace="displayP3"/>
+        </namedColor>
+        <namedColor name="button_background_disabled">
+            <color red="0.82745098039215681" green="0.83137254901960789" blue="0.83529411764705885" alpha="1" colorSpace="custom" customColorSpace="displayP3"/>
+        </namedColor>
+        <namedColor name="text_tertiary">
+            <color red="0.59999999999999998" green="0.59999999999999998" blue="0.59999999999999998" alpha="1" colorSpace="custom" customColorSpace="displayP3"/>
+        </namedColor>
+        <namedColor name="theme">
+            <color red="0.23921568627450981" green="0.45882352941176469" blue="0.8901960784313725" alpha="1" colorSpace="custom" customColorSpace="displayP3"/>
+        </namedColor>
+    </resources>
+</document>

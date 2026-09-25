@@ -1,0 +1,1152 @@
+import UIKit
+import MixinServices
+
+final class PerpetualMarketViewController: UIViewController {
+    
+    private enum AutoClosingIntroDisplay {
+        case takeProfit
+        case stopLoss
+        case disabled
+    }
+    
+    private enum EditingLock {
+        case takeProfit
+        case stopLoss
+    }
+    
+    private enum ActionViewState {
+        case available
+        case opening
+        case opened
+        case adding
+    }
+    
+    private enum Section {
+        case price
+        case autoClosingIntroduction(PerpsAutoClosingCondition.Behavior)
+        case openPosition(PerpetualPositionViewModel)
+        case info
+        case activities([PerpetualOrderViewModel])
+        case introduction
+        case description(String)
+    }
+    
+    private enum Info {
+        
+        case volume
+        case openInterest
+        case fundingRate
+        
+        static func availableInfos(
+            in viewModel: PerpetualMarketViewModel
+        ) -> [Info] {
+            var infos: [Info] = [.volume]
+            if viewModel.openInterest != nil {
+                infos.append(.openInterest)
+            }
+            infos.append(.fundingRate)
+            return infos
+        }
+        
+    }
+    
+    private let wallet: Wallet
+    private let positionsLoader: PerpetualPositionLoader
+    private let marketLoader: PerpetualMarketLoader
+    private let candleLoader: PerpetualCandleLoader
+    private let maxItemCount = 3
+    private let autoClosingIntroductionDetectInterval: TimeInterval = 14 * .day
+    
+    private var viewModel: PerpetualMarketViewModel
+    private var isFavorite: Bool = false
+    private var sections: [Section] = [.price, .info]
+    private var infos: [Info] = []
+    private var selectedTimeFrame: PerpetualTimeFrame = {
+        if let value = AppGroupUserDefaults.Wallet.perpsChartTimeFrame,
+           let frame = PerpetualTimeFrame(rawValue: value)
+        {
+            return frame
+        } else {
+            return .oneDay
+        }
+    }()
+    private var charts: [PerpetualTimeFrame: PerpetualMarketPriceCell.Chart] = [:]
+    
+    private weak var favoriteButton: FavoriteButton!
+    private weak var collectionView: UICollectionView!
+    private weak var actionWrapperView: UIView!
+    private weak var actionView: UIView?
+    
+    private weak var priceCell: PerpetualMarketPriceCell?
+    private weak var autoClosingIntroCell: PerpsAutoClosingIntroCell?
+    private weak var openPositionCell: PerpetualMarketOpenPositionCell?
+    
+    private var autoClosingIntroDisplay: AutoClosingIntroDisplay?
+    private var editingLock: EditingLock?
+    
+    private var openPositionViewModel: PerpetualPositionViewModel? {
+        for section in sections {
+            switch section {
+            case .openPosition(let viewModel):
+                return viewModel
+            default:
+                break
+            }
+        }
+        return nil
+    }
+    
+    init(
+        wallet: Wallet,
+        viewModel: PerpetualMarketViewModel,
+    ) {
+        self.wallet = wallet
+        self.positionsLoader = PerpetualPositionLoader(
+            walletID: wallet.tradingWalletID
+        )
+        self.marketLoader = PerpetualMarketLoader(
+            request: .single(marketID: viewModel.market.marketID),
+            timeInterval: 3,
+        )
+        self.candleLoader = PerpetualCandleLoader(
+            marketID: viewModel.market.marketID
+        )
+        self.viewModel = viewModel
+        self.infos = Info.availableInfos(in: viewModel)
+        super.init(nibName: nil, bundle: nil)
+        self.candleLoader.delegate = self
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("Storyboard is not supported")
+    }
+    
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        
+        title = viewModel.market.displaySymbol
+        navigationItem.titleView = NavigationTitleView(
+            title: viewModel.market.displaySymbol,
+            subtitle: R.string.localizable.perpetual()
+        )
+        navigationItem.rightBarButtonItem = .customerService(
+            target: self,
+            action: #selector(presentCustomerService(_:))
+        )
+        view.backgroundColor = R.color.background_secondary()
+        
+        let sectionProvider: UICollectionViewCompositionalLayoutSectionProvider = {
+            [weak self, maxItemCount] (sectionIndex, environment) in
+            
+            func oneCell(estimatedHeight: CGFloat) -> NSCollectionLayoutSection {
+                let itemSize = NSCollectionLayoutSize(
+                    widthDimension: .fractionalWidth(1),
+                    heightDimension: .estimated(estimatedHeight)
+                )
+                let item = NSCollectionLayoutItem(layoutSize: itemSize)
+                let group: NSCollectionLayoutGroup = .vertical(layoutSize: itemSize, subitems: [item])
+                let section = NSCollectionLayoutSection(group: group)
+                section.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20)
+                return section
+            }
+            
+            func multipleCells(estimatedHeight: CGFloat) -> NSCollectionLayoutSection {
+                let itemSize = NSCollectionLayoutSize(
+                    widthDimension: .fractionalWidth(1),
+                    heightDimension: .estimated(estimatedHeight)
+                )
+                let item = NSCollectionLayoutItem(layoutSize: itemSize)
+                let group: NSCollectionLayoutGroup = .vertical(layoutSize: itemSize, subitems: [item])
+                let section = NSCollectionLayoutSection(group: group)
+                section.interGroupSpacing = 20
+                return section
+            }
+            
+            switch self?.sections[sectionIndex] {
+            case .price, .none:
+                return oneCell(estimatedHeight: 358)
+            case .autoClosingIntroduction:
+                return oneCell(estimatedHeight: 116)
+            case .openPosition:
+                return oneCell(estimatedHeight: 238)
+            case .info:
+                let section = multipleCells(estimatedHeight: 50)
+                section.contentInsets = NSDirectionalEdgeInsets(top: 20, leading: 20, bottom: 20, trailing: 20)
+                let background: NSCollectionLayoutDecorationItem = .background(
+                    elementKind: TradeSectionBackgroundView.elementKind
+                )
+                background.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20)
+                section.decorationItems = [background]
+                return section
+            case .activities(let positions):
+                let section = multipleCells(estimatedHeight: 50)
+                let footerHeight: CGFloat = positions.count <= maxItemCount ? 20 : 56
+                section.boundarySupplementaryItems = [
+                    NSCollectionLayoutBoundarySupplementaryItem(
+                        layoutSize: NSCollectionLayoutSize(
+                            widthDimension: .fractionalWidth(1),
+                            heightDimension: .absolute(57)
+                        ),
+                        elementKind: UICollectionView.elementKindSectionHeader,
+                        alignment: .top
+                    ),
+                    NSCollectionLayoutBoundarySupplementaryItem(
+                        layoutSize: NSCollectionLayoutSize(
+                            widthDimension: .fractionalWidth(1),
+                            heightDimension: .absolute(footerHeight)
+                        ),
+                        elementKind: UICollectionView.elementKindSectionFooter,
+                        alignment: .bottom
+                    ),
+                ]
+                section.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20)
+                let background: NSCollectionLayoutDecorationItem = .background(
+                    elementKind: TradeSectionBackgroundView.elementKind
+                )
+                background.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20)
+                section.decorationItems = [background]
+                return section
+            case .introduction:
+                return oneCell(estimatedHeight: 90)
+            case .description:
+                return oneCell(estimatedHeight: 60)
+            }
+        }
+        let config = UICollectionViewCompositionalLayoutConfiguration()
+        config.interSectionSpacing = 10
+        let layout = UICollectionViewCompositionalLayout(
+            sectionProvider: sectionProvider,
+            configuration: config
+        )
+        layout.register(
+            TradeSectionBackgroundView.self,
+            forDecorationViewOfKind: TradeSectionBackgroundView.elementKind
+        )
+        let collectionView = UICollectionView(frame: view.bounds, collectionViewLayout: layout)
+        collectionView.backgroundColor = R.color.background_secondary()
+        view.addSubview(collectionView)
+        collectionView.snp.makeConstraints { make in
+            make.top.leading.trailing.equalToSuperview()
+        }
+        self.collectionView = collectionView
+        
+        let actionWrapperView = UIView()
+        view.addSubview(actionWrapperView)
+        actionWrapperView.snp.makeConstraints { make in
+            make.leading.trailing.equalToSuperview()
+            make.top.equalTo(collectionView.snp.bottom)
+            make.bottom.equalTo(view.safeAreaLayoutGuide.snp.bottom)
+        }
+        actionWrapperView.backgroundColor = R.color.background_secondary()
+        self.actionWrapperView = actionWrapperView
+        
+        collectionView.contentInset = UIEdgeInsets(top: 10, left: 0, bottom: 0, right: 0)
+        collectionView.register(
+            R.nib.tradeSectionHeaderView,
+            forSupplementaryViewOfKind: UICollectionView.elementKindSectionHeader
+        )
+        collectionView.register(
+            TradeViewAllFooterView.self,
+            forSupplementaryViewOfKind: UICollectionView.elementKindSectionFooter,
+            withReuseIdentifier: TradeViewAllFooterView.reuseIdentifier
+        )
+        collectionView.register(R.nib.perpetualMarketPriceCell)
+        collectionView.register(R.nib.perpetualMarketInfoCell)
+        collectionView.register(R.nib.perpMarketFundingRateCell)
+        collectionView.register(R.nib.perpetualIntroductionCell)
+        collectionView.register(R.nib.perpsAutoClosingIntroCell)
+        collectionView.register(R.nib.perpetualMarketOpenPositionCell)
+        collectionView.register(R.nib.perpetualActivityCell)
+        collectionView.register(R.nib.perpsMarketDescriptionCell)
+        collectionView.dataSource = self
+        collectionView.delegate = self
+        collectionView.reloadData()
+        
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(reloadMarket(_:)),
+            name: PerpsMarketDAO.marketsDidUpdateNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(reloadPositions),
+            name: PerpsPositionDAO.perpsPositionDidChangeNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(reloadPositions),
+            name: PerpsOrderDAO.perpsOrdersDidSaveNotification,
+            object: nil
+        )
+        reloadPositions()
+        
+        let marketID = viewModel.market.marketID
+        let favoriteButton = FavoriteButton(config: .barButton)
+        favoriteButton.addTarget(
+            self,
+            action: #selector(toggleFavorite(_:)),
+            for: .touchUpInside
+        )
+        let favoriteItem = UIBarButtonItem(customView: favoriteButton)
+        DispatchQueue.global().async { [weak self] in
+            let isFavorite = PerpsMarketDAO.shared.isFavorite(marketID: marketID)
+            DispatchQueue.main.async {
+                guard let self else {
+                    return
+                }
+                favoriteButton.setFavorite(isFavorite, animated: false)
+                self.isFavorite = isFavorite
+                self.favoriteButton = favoriteButton
+                self.navigationItem.rightBarButtonItems?.append(favoriteItem)
+            }
+        }
+    }
+    
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        positionsLoader.start()
+        marketLoader.start()
+        candleLoader.start(timeFrame: selectedTimeFrame)
+        if !BadgeManager.shared.hasViewed(identifier: .perpsManual) {
+            BadgeManager.shared.setHasViewed(identifier: .perpsManual)
+            let manual = PerpsManual.viewController()
+            present(manual, animated: true)
+            reporter.report(event: .tradePerpsGuide, tags: ["source": "first_guide"])
+        }
+    }
+    
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        positionsLoader.stop()
+        marketLoader.stop()
+        candleLoader.stop()
+    }
+    
+    @objc private func toggleFavorite(_ sender: Any) {
+        let marketID = viewModel.market.marketID
+        let symbol = viewModel.market.displaySymbol
+        if isFavorite {
+            isFavorite = false
+            favoriteButton.setFavorite(false, animated: true)
+            RouteAPI.unfavoritePerpsMarket(marketID: marketID) { [weak self] result in
+                switch result {
+                case .success:
+                    DispatchQueue.global().async {
+                        PerpsMarketDAO.shared.unfavorite(marketIDs: [marketID])
+                    }
+                    showAutoHiddenHud(style: .notification, text: R.string.localizable.watchlist_remove_desc(symbol))
+                case .failure(let error):
+                    if let self {
+                        showAutoHiddenHud(style: .error, text: error.localizedDescription)
+                        self.isFavorite = true
+                        self.favoriteButton.setFavorite(true, animated: false)
+                    }
+                }
+            }
+            reporter.report(
+                event: .marketWatchlistRemove,
+                tags: ["type": "perps", "source": "market_detail"]
+            )
+        } else {
+            isFavorite = true
+            favoriteButton.setFavorite(true, animated: true)
+            RouteAPI.favoritePerpsMarket(marketID: marketID) { [weak self] result in
+                switch result {
+                case .success:
+                    DispatchQueue.global().async {
+                        PerpsMarketDAO.shared.favorite(marketIDs: [marketID])
+                    }
+                    showAutoHiddenHud(style: .notification, text: R.string.localizable.watchlist_add_desc(symbol))
+                case .failure(let error):
+                    if let self {
+                        showAutoHiddenHud(style: .error, text: error.localizedDescription)
+                        self.isFavorite = false
+                        self.favoriteButton.setFavorite(false, animated: false)
+                    }
+                }
+            }
+            reporter.report(
+                event: .marketWatchlistAdd,
+                tags: ["type": "perps", "source": "market_detail"]
+            )
+        }
+    }
+    
+    @objc private func presentCustomerService(_ sender: Any) {
+        let customerService = CustomerServiceViewController(reportingTags: ["source": "perps_market"])
+        present(customerService, animated: true)
+    }
+    
+    @objc private func openLongPosition(_ sender: UIButton) {
+        let open = OpenPerpsPositionViewController(
+            wallet: wallet,
+            side: .long,
+            presentMarketViewOnSuccess: true,
+            viewModel: viewModel,
+            leaderPosition: nil
+        )
+        navigationController?.pushViewController(open, animated: true)
+    }
+    
+    @objc private func openShortPosition(_ sender: UIButton) {
+        let open = OpenPerpsPositionViewController(
+            wallet: wallet,
+            side: .short,
+            presentMarketViewOnSuccess: true,
+            viewModel: viewModel,
+            leaderPosition: nil
+        )
+        navigationController?.pushViewController(open, animated: true)
+    }
+    
+    @objc private func adjustPosition(_ sender: UIButton) {
+        let adjustment = PerpPositionAdjustmentSelectorViewController()
+        adjustment.onSelected = { [weak self] adjustment in
+            guard let self else {
+                return
+            }
+            guard let positionViewModel = self.openPositionViewModel else {
+                return
+            }
+            switch adjustment.behavior {
+            case .increase:
+                UserOperationAnalytics.tradeSource = .perpsMarketDetailAdjust
+                let addPosition = AddToPerpsPositionViewController(
+                    wallet: wallet,
+                    adding: adjustment.target,
+                    marketViewModel: viewModel,
+                    positionViewModel: positionViewModel,
+                    source: nil,
+                    presentMarketViewOnSuccess: true,
+                )
+                self.present(addPosition, animated: true)
+            case .decrease:
+                UserOperationAnalytics.tradeSource = .perpsMarketDetailAdjust
+                let reduce = ReduceToPerpsPositionViewController(
+                    wallet: wallet,
+                    reducing: adjustment.target,
+                    marketViewModel: viewModel,
+                    positionViewModel: positionViewModel,
+                )
+                self.present(reduce, animated: true)
+            }
+        }
+        present(adjustment, animated: true)
+    }
+    
+    @objc private func closePosition(_ sender: UIButton) {
+        guard
+            let viewModel = openPositionViewModel,
+            let preview = ClosePerpetualPositionPreviewViewController(viewModels: [viewModel])
+        else {
+            return
+        }
+        present(preview, animated: true)
+        reporter.report(event: .tradePerpsCloseStart, tags: ["type": "single"])
+    }
+    
+    @objc private func reloadMarket(_ notification: Notification) {
+        let marketID = viewModel.market.marketID
+        DispatchQueue.global().async { [weak self] in
+            guard let market = PerpsMarketDAO.shared.market(marketID: marketID) else {
+                return
+            }
+            let viewModel = PerpetualMarketViewModel(market: market)
+            let infos = Info.availableInfos(in: viewModel)
+            DispatchQueue.main.async {
+                guard let self else {
+                    return
+                }
+                self.viewModel = viewModel
+                self.infos = infos
+                UIView.performWithoutAnimation(self.collectionView.reloadData)
+            }
+        }
+    }
+    
+    @objc private func reloadPositions() {
+        let marketID = viewModel.market.marketID
+        let limit = maxItemCount + 1
+        DispatchQueue.global().async { [weak self, wallet] in
+            let openPosition = PerpsPositionDAO.shared.position(marketID: marketID)
+            let openPositionViewModel: PerpetualPositionViewModel? = if let openPosition {
+                PerpetualPositionViewModel(wallet: wallet, position: openPosition)
+            } else {
+                nil
+            }
+            let activities = PerpsOrderDAO.shared.orderItems(
+                marketID: marketID,
+                limit: limit
+            ).compactMap { order in
+                PerpetualOrderViewModel(wallet: wallet, order: order)
+            }
+            DispatchQueue.main.async {
+                self?.reloadData(
+                    openPosition: openPositionViewModel,
+                    activities: activities
+                )
+            }
+        }
+    }
+    
+    private func reloadData(
+        openPosition: PerpetualPositionViewModel?,
+        activities: [PerpetualOrderViewModel]
+    ) {
+        if let openPosition, openPosition.state != .opening {
+            sections = [.price]
+            switch autoClosingIntroDisplay {
+            case .takeProfit:
+                sections.append(.autoClosingIntroduction(.takeProfit))
+            case .stopLoss:
+                sections.append(.autoClosingIntroduction(.stopLoss))
+            case .disabled:
+                break
+            case .none:
+                switch openPosition.pnlColor {
+                case .rising:
+                    if openPosition.takeProfitPrice == nil,
+                       userDismissalOutdates(dismissalDate: AppGroupUserDefaults.Wallet.perpsOpenPositionTakeProfitDismissalDate)
+                    {
+                        sections.append(.autoClosingIntroduction(.takeProfit))
+                        autoClosingIntroDisplay = .takeProfit
+                    } else {
+                        autoClosingIntroDisplay = .disabled
+                    }
+                case .falling:
+                    if openPosition.stopLossPrice == nil,
+                       userDismissalOutdates(dismissalDate: AppGroupUserDefaults.Wallet.perpsOpenPositionStopLossDismissalDate)
+                    {
+                        sections.append(.autoClosingIntroduction(.stopLoss))
+                        autoClosingIntroDisplay = .stopLoss
+                    } else {
+                        autoClosingIntroDisplay = .disabled
+                    }
+                }
+            }
+            sections.append(contentsOf:[
+                .openPosition(openPosition),
+                .info,
+            ])
+            if !activities.isEmpty {
+                sections.append(.activities(activities))
+            }
+            sections.append(.introduction)
+            loadActionView(state: .opened)
+        } else {
+            sections = [
+                .price,
+                .introduction,
+                .info,
+            ]
+            if !activities.isEmpty {
+                sections.append(.activities(activities))
+            }
+            if openPosition == nil {
+                loadActionView(state: .available)
+            } else {
+                loadActionView(state: .opening)
+            }
+        }
+        if let description = viewModel.description {
+            sections.append(.description(description))
+        }
+        
+        infos = Info.availableInfos(in: viewModel)
+        
+        collectionView.reloadData()
+    }
+    
+    private func viewActivities() {
+        let activities = PerpetualActivitiesViewController(wallet: wallet)
+        navigationController?.pushViewController(activities, animated: true)
+        reporter.report(
+            event: .tradePerpsActivities,
+            tags: ["source": "perps_market"]
+        )
+    }
+    
+    private func handleTPSLUpdate(result: MixinAPI.Result<PerpetualPosition>) {
+        var openPositionIndexPath: IndexPath? {
+            for (index, section) in sections.enumerated() {
+                switch section {
+                case .openPosition:
+                    return IndexPath(item: 0, section: index)
+                default:
+                    break
+                }
+            }
+            return nil
+        }
+        switch result {
+        case let .success(position):
+            let item = PerpsPositionDAO.shared.save(position: position)
+            if let item, let openPositionIndexPath {
+                let viewModel = PerpetualPositionViewModel(wallet: wallet, position: item)
+                self.sections[openPositionIndexPath.section] = .openPosition(viewModel)
+                UIView.performWithoutAnimation {
+                    collectionView.reloadItems(at: [openPositionIndexPath])
+                }
+            } else {
+                var message = "TPSL: Item: \(item != nil), indexPath: \(openPositionIndexPath != nil)"
+                if let item {
+                    message += ", TP: \(item.takeProfitPrice ?? "null"), SL: \(item.stopLossPrice ?? "null")"
+                }
+                Logger.general.error(category: "PerpsMarket", message: message)
+                reloadPositions()
+            }
+        case let .failure(error):
+            showAutoHiddenHud(style: .error, text: error.localizedDescription)
+            if let openPositionIndexPath {
+                UIView.performWithoutAnimation {
+                    collectionView.reloadItems(at: [openPositionIndexPath])
+                }
+            }
+        }
+        autoClosingIntroCell?.performSuggestionButton.isEnabled = true
+        if editingLock == nil {
+            positionsLoader.start()
+        }
+    }
+    
+    private func userDismissalOutdates(dismissalDate: Date) -> Bool {
+        -dismissalDate.timeIntervalSinceNow > autoClosingIntroductionDetectInterval
+    }
+    
+    private func setupTakeProfit(positionViewModel: PerpetualPositionViewModel) {
+        guard
+            editingLock == nil,
+            let entryPrice = positionViewModel.decimalEntryPrice,
+            let liquidationPrice = positionViewModel.decimalLiquidationPrice
+        else {
+            return
+        }
+        let editor = EditPerpClosingConditionViewController(
+            viewModel: viewModel,
+            side: positionViewModel.side,
+            margin: positionViewModel.decimalMargin,
+            behavior: .takeProfit,
+            leverage: Decimal(positionViewModel.leverageMultiplier),
+            orderState: .open(entryPrice: entryPrice), 
+            liquidationPrice: liquidationPrice,
+            currentAutoClosingPrice: positionViewModel.takeProfitPrice
+        )
+        let priceFormatStyle = viewModel.market.canonicalPriceFormatStyle
+        editor.onSet = { [weak self] price in
+            if let self {
+                positionsLoader.stop()
+                editingLock = .takeProfit
+                autoClosingIntroCell?.performSuggestionButton.isEnabled = false
+                openPositionCell?.updateTakeProfit(busy: true)
+            }
+            let price: RouteAPI.AutoClosingPrice = if let price {
+                .value(price.formatted(priceFormatStyle))
+            } else {
+                .delete
+            }
+            RouteAPI.updatePerpsTPSL(
+                positionID: positionViewModel.positionID,
+                takeProfitPrice: price,
+                stopLossPrice: nil,
+            ) { result in
+                guard let self else {
+                    return
+                }
+                self.editingLock = nil
+                self.handleTPSLUpdate(result: result)
+            }
+        }
+        present(editor, animated: true)
+    }
+    
+    private func setupStopLoss(positionViewModel: PerpetualPositionViewModel) {
+        guard
+            editingLock == nil,
+            let entryPrice = positionViewModel.decimalEntryPrice,
+            let liquidationPrice = positionViewModel.decimalLiquidationPrice
+        else {
+            return
+        }
+        let editor = EditPerpClosingConditionViewController(
+            viewModel: viewModel,
+            side: positionViewModel.side,
+            margin: positionViewModel.decimalMargin,
+            behavior: .stopLoss,
+            leverage: Decimal(positionViewModel.leverageMultiplier),
+            orderState: .open(entryPrice: entryPrice),
+            liquidationPrice: liquidationPrice,
+            currentAutoClosingPrice: positionViewModel.stopLossPrice,
+        )
+        let priceFormatStyle = viewModel.market.canonicalPriceFormatStyle
+        editor.onSet = { [weak self] price in
+            if let self {
+                positionsLoader.stop()
+                editingLock = .stopLoss
+                autoClosingIntroCell?.performSuggestionButton.isEnabled = false
+                openPositionCell?.updateStopLoss(busy: true)
+            }
+            let price: RouteAPI.AutoClosingPrice = if let price {
+                .value(price.formatted(priceFormatStyle))
+            } else {
+                .delete
+            }
+            RouteAPI.updatePerpsTPSL(
+                positionID: positionViewModel.positionID,
+                takeProfitPrice: nil,
+                stopLossPrice: price,
+            ) { result in
+                guard let self else {
+                    return
+                }
+                self.editingLock = nil
+                self.handleTPSLUpdate(result: result)
+            }
+        }
+        present(editor, animated: true)
+    }
+    
+    private func loadActionView(state: ActionViewState) {
+        var singleButtonView: AuthenticationPreviewSingleButtonTrayView?
+        var doubleButtonView: OpenPerpetualActionView?
+        switch state {
+        case .available, .opened:
+            singleButtonView = nil
+            if let view = self.actionView as? OpenPerpetualActionView {
+                doubleButtonView = view
+            } else {
+                let view = R.nib.openPerpetualActionView(withOwner: nil)!
+                view.backgroundColor = R.color.background_secondary()
+                doubleButtonView = view
+            }
+        case .opening, .adding:
+            if let view = self.actionView as? AuthenticationPreviewSingleButtonTrayView {
+                singleButtonView = view
+            } else {
+                let view = AuthenticationPreviewSingleButtonTrayView()
+                view.backgroundColor = R.color.background_secondary()
+                view.button.configuration?.contentInsets = NSDirectionalEdgeInsets(top: 12, leading: 37, bottom: 12, trailing: 37)
+                singleButtonView = view
+            }
+            doubleButtonView = nil
+        }
+        switch state {
+        case .available:
+            if let actionView = doubleButtonView {
+                actionView.loadLongShortConfiguration()
+                actionView.leftButton.removeTarget(self, action: nil, for: .touchUpInside)
+                actionView.leftButton.addTarget(self, action: #selector(openLongPosition(_:)), for: .touchUpInside)
+                actionView.rightButton.removeTarget(self, action: nil, for: .touchUpInside)
+                actionView.rightButton.addTarget(self, action: #selector(openShortPosition(_:)), for: .touchUpInside)
+                actionView.buttonsAvailability = .allEnabled
+            }
+        case .opening:
+            if let actionView = singleButtonView {
+                actionView.button.configuration?.title = R.string.localizable.perp_state_opening()
+                actionView.button.isEnabled = false
+            }
+        case .opened:
+            if let actionView = doubleButtonView {
+                if var config = actionView.leftButton.configuration {
+                    config.baseBackgroundColor = MarketColor.rising.uiColor
+                    config.baseForegroundColor = .white
+                    config.attributedTitle = AttributedString(
+                        R.string.localizable.perps_adjust(),
+                        attributes: actionView.mediumFontAttributes
+                    )
+                    actionView.leftButton.configuration = config
+                }
+                actionView.leftButton.removeTarget(self, action: nil, for: .touchUpInside)
+                actionView.leftButton.addTarget(
+                    self,
+                    action: #selector(adjustPosition(_:)),
+                    for: .touchUpInside
+                )
+                if var config = actionView.rightButton.configuration {
+                    config.baseBackgroundColor = R.color.theme()!
+                    config.baseForegroundColor = .white
+                    config.attributedTitle = AttributedString(
+                        R.string.localizable.close_position(),
+                        attributes: actionView.mediumFontAttributes
+                    )
+                    actionView.rightButton.configuration = config
+                }
+                actionView.rightButton.removeTarget(self, action: nil, for: .touchUpInside)
+                actionView.rightButton.addTarget(self, action: #selector(closePosition(_:)), for: .touchUpInside)
+                actionView.buttonsAvailability = .allEnabled
+            }
+        case .adding:
+            if let actionView = singleButtonView {
+                actionView.button.configuration?.title = R.string.localizable.adding_address()
+                actionView.button.isEnabled = false
+            }
+        }
+        if let actionView = singleButtonView ?? doubleButtonView, self.actionView != actionView {
+            self.actionView?.removeFromSuperview()
+            actionWrapperView.addSubview(actionView)
+            actionView.snp.makeEdgesEqualToSuperview()
+            self.actionView = actionView
+        }
+    }
+    
+}
+
+extension PerpetualMarketViewController: NavigationBarStyling {
+    
+    var navigationBarStyle: NavigationBarStyle {
+        .secondaryBackground
+    }
+    
+}
+
+extension PerpetualMarketViewController: UICollectionViewDataSource {
+    
+    func numberOfSections(in collectionView: UICollectionView) -> Int {
+        sections.count
+    }
+    
+    func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
+        switch sections[section] {
+        case .price:
+            1
+        case .autoClosingIntroduction:
+            1
+        case .openPosition:
+            1
+        case .info:
+            infos.count
+        case .activities(let activities):
+            min(maxItemCount, activities.count)
+        case .introduction:
+            1
+        case .description:
+            1
+        }
+    }
+    
+    func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
+        switch sections[indexPath.section] {
+        case .price:
+            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: R.reuseIdentifier.perps_market_price, for: indexPath)!
+            cell.delegate = self
+            cell.load(viewModel: viewModel)
+            cell.load(
+                chart: charts[selectedTimeFrame] ?? .loading,
+                priceFormatStyle: viewModel.userDisplayPriceFormatStyle
+            )
+            cell.setTimeFrame(frame: selectedTimeFrame)
+            priceCell = cell
+            return cell
+        case .autoClosingIntroduction(let suggestion):
+            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: R.reuseIdentifier.perps_auto_closing_intro, for: indexPath)!
+            cell.suggestion = suggestion
+            cell.delegate = self
+            autoClosingIntroCell = cell
+            return cell
+        case .openPosition(let viewModel):
+            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: R.reuseIdentifier.perps_market_open_position, for: indexPath)!
+            cell.updateTakeProfit(busy: editingLock == .takeProfit)
+            cell.updateStopLoss(busy: editingLock == .stopLoss)
+            cell.load(viewModel: viewModel)
+            cell.delegate = self
+            openPositionCell = cell
+            return cell
+        case .info:
+            switch infos[indexPath.item] {
+            case .volume:
+                let cell = collectionView.dequeueReusableCell(withReuseIdentifier: R.reuseIdentifier.perps_market_info, for: indexPath)!
+                cell.titleLabel.text = R.string.localizable.volume_24h().uppercased()
+                cell.titleInfoImageView.isHidden = true
+                cell.contentLabel.text = viewModel.volume
+                cell.delegate = nil
+                return cell
+            case .openInterest:
+                let cell = collectionView.dequeueReusableCell(withReuseIdentifier: R.reuseIdentifier.perps_market_info, for: indexPath)!
+                cell.titleLabel.text = R.string.localizable.open_interest().uppercased()
+                cell.titleInfoImageView.isHidden = true
+                cell.contentLabel.text = viewModel.openInterest
+                cell.delegate = nil
+                return cell
+            case .fundingRate:
+                let cell = collectionView.dequeueReusableCell(withReuseIdentifier: R.reuseIdentifier.perp_market_funding_rate, for: indexPath)!
+                let title = if viewModel.market.fundingIntervalHours > 0 {
+                    R.string.localizable.perps_funding_title_interval(viewModel.market.fundingIntervalHours)
+                } else {
+                    R.string.localizable.funding_rate()
+                }
+                cell.titleLabel.text = title.uppercased()
+                cell.contentLabel.text = viewModel.fundingRate
+                cell.delegate = self
+                cell.startCountDown(
+                    nextFundingDate: viewModel.nextFundingAt,
+                    totalInterval: TimeInterval(viewModel.market.fundingIntervalHours) * .hour
+                )
+                return cell
+            }
+        case .activities(let viewModels):
+            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: R.reuseIdentifier.perps_activity, for: indexPath)!
+            let viewModel = viewModels[indexPath.item]
+            cell.load(viewModel: viewModel)
+            return cell
+        case .introduction:
+            return collectionView.dequeueReusableCell(withReuseIdentifier: R.reuseIdentifier.perps_introduction, for: indexPath)!
+        case .description(let description):
+            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: R.reuseIdentifier.perps_market_description, for: indexPath)!
+            cell.contentLabel.text = description
+            cell.delegate = self
+            return cell
+        }
+    }
+    
+    func collectionView(_ collectionView: UICollectionView, viewForSupplementaryElementOfKind kind: String, at indexPath: IndexPath) -> UICollectionReusableView {
+        switch kind {
+        case UICollectionView.elementKindSectionHeader:
+            let view = collectionView.dequeueReusableSupplementaryView(ofKind: kind, withReuseIdentifier: R.reuseIdentifier.trade_section_header, for: indexPath)!
+            switch sections[indexPath.section] {
+            case .activities:
+                view.titleLabel.text = R.string.localizable.perps_activity()
+                view.onShowAll = { [weak self] (sender) in
+                    self?.viewActivities()
+                }
+            default:
+                break
+            }
+            return view
+        default:
+            let view = collectionView.dequeueReusableSupplementaryView(ofKind: kind, withReuseIdentifier: TradeViewAllFooterView.reuseIdentifier, for: indexPath) as! TradeViewAllFooterView
+            switch sections[indexPath.section] {
+            case .activities(let positions):
+                view.viewAllButton.isHidden = positions.count <= maxItemCount
+                view.onViewAll = { [weak self] (sender) in
+                    self?.viewActivities()
+                }
+            default:
+                break
+            }
+            return view
+        }
+    }
+    
+}
+
+extension PerpetualMarketViewController: UICollectionViewDelegate {
+    
+    func collectionView(_ collectionView: UICollectionView, shouldSelectItemAt indexPath: IndexPath) -> Bool {
+        switch sections[indexPath.section] {
+        case .price, .autoClosingIntroduction, .openPosition, .info, .description:
+            false
+        case .activities, .introduction:
+            true
+        }
+    }
+    
+    func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        switch sections[indexPath.section] {
+        case .price, .autoClosingIntroduction, .openPosition, .info, .description:
+            break
+        case .activities(let viewModels):
+            let viewModel = viewModels[indexPath.item]
+            let activity = PerpetualOrderViewController(wallet: wallet, viewModel: viewModel)
+            navigationController?.pushViewController(activity, animated: true)
+            reporter.report(event: .tradePerpsActivityDetail, tags: ["source": "perps_market"])
+        case .introduction:
+            let manual = PerpsManual.viewController()
+            present(manual, animated: true)
+            reporter.report(event: .tradePerpsGuide, tags: ["source": "perps_detail_card"])
+        }
+    }
+    
+}
+
+extension PerpetualMarketViewController: PerpetualMarketPriceCell.Delegate {
+    
+    func perpetualMarketPriceCell(_ cell: PerpetualMarketPriceCell, didSelectTimeFrame timeFrame: PerpetualTimeFrame) {
+        self.selectedTimeFrame = timeFrame
+        cell.load(
+            chart: charts[timeFrame] ?? .loading,
+            priceFormatStyle: viewModel.userDisplayPriceFormatStyle
+        )
+        candleLoader.start(timeFrame: timeFrame)
+        AppGroupUserDefaults.Wallet.perpsChartTimeFrame = timeFrame.rawValue
+    }
+    
+}
+
+extension PerpetualMarketViewController: PerpetualMarketOpenPositionCell.Delegate {
+    
+    func perpetualMarketOpenPositionCell(_ cell: PerpetualMarketOpenPositionCell, requestManual page: PerpsManual.Page) {
+        let manual = PerpsManual.viewController(initialPage: page)
+        present(manual, animated: true)
+        reporter.report(event: .tradePerpsGuide, tags: ["source": "perps_detail_card"])
+    }
+    
+    func perpetualMarketOpenPositionCellAskToShare(_ cell: PerpetualMarketOpenPositionCell) {
+        guard let positionViewModel = openPositionViewModel else {
+            return
+        }
+        let dataSource = SharePerpetualPositionDataSource(
+            viewModel: positionViewModel,
+            latestPrice: viewModel.decimalPrice,
+        )
+        let hud = Hud()
+        hud.show(style: .busy, text: "")
+        Referral.loadAvailableCode { [weak self] code in
+            hud.hide()
+            let share = PopupShareViewController(
+                contentViewController: SharePerpsPositionViewController(
+                    dataSource: dataSource,
+                    rebatingCode: code
+                ),
+                rebatingCode: code,
+            )
+            self?.present(share, animated: true)
+        }
+    }
+    
+    func perpetualMarketOpenPositionCellRequestAddTakeProfit(_ cell: PerpetualMarketOpenPositionCell) {
+        guard let positionViewModel = openPositionViewModel, editingLock == nil else {
+            return
+        }
+        setupTakeProfit(positionViewModel: positionViewModel)
+    }
+    
+    func perpetualMarketOpenPositionCellRequestDeleteTakeProfit(_ cell: PerpetualMarketOpenPositionCell) {
+        guard let positionViewModel = openPositionViewModel, editingLock == nil else {
+            return
+        }
+        positionsLoader.stop()
+        editingLock = .takeProfit
+        autoClosingIntroCell?.performSuggestionButton.isEnabled = false
+        cell.updateTakeProfit(busy: true)
+        RouteAPI.updatePerpsTPSL(
+            positionID: positionViewModel.positionID,
+            takeProfitPrice: .delete,
+            stopLossPrice: nil
+        ) { [weak self] result in
+            guard let self else {
+                return
+            }
+            self.editingLock = nil
+            self.handleTPSLUpdate(result: result)
+        }
+    }
+    
+    func perpetualMarketOpenPositionCellRequestAddStopLoss(_ cell: PerpetualMarketOpenPositionCell) {
+        guard let positionViewModel = openPositionViewModel, editingLock == nil else {
+            return
+        }
+        setupStopLoss(positionViewModel: positionViewModel)
+    }
+    
+    func perpetualMarketOpenPositionCellRequestDeleteStopLoss(_ cell: PerpetualMarketOpenPositionCell) {
+        guard let positionViewModel = openPositionViewModel, editingLock == nil else {
+            return
+        }
+        positionsLoader.stop()
+        editingLock = .stopLoss
+        autoClosingIntroCell?.performSuggestionButton.isEnabled = false
+        cell.updateStopLoss(busy: true)
+        RouteAPI.updatePerpsTPSL(
+            positionID: positionViewModel.positionID,
+            takeProfitPrice: nil,
+            stopLossPrice: .delete
+        ) { [weak self] result in
+            guard let self else {
+                return
+            }
+            self.editingLock = nil
+            self.handleTPSLUpdate(result: result)
+        }
+    }
+    
+}
+
+extension PerpetualMarketViewController: PerpMarketFundingRateCell.Delegate {
+    
+    func perpMarketFundingRateCellDidRequestInfo(_ cell: PerpMarketFundingRateCell) {
+        let manual = PerpsManual.viewController(initialPage: .fundingRate)
+        present(manual, animated: true)
+        reporter.report(event: .tradePerpsGuide, tags: ["source": "perps_market_info"])
+    }
+    
+}
+
+extension PerpetualMarketViewController: PerpetualCandleLoader.Delegate {
+    
+    func perpetualCandleLoader(
+        _ loader: PerpetualCandleLoader,
+        didLoadCandles candles: [PerpetualCandleViewModel]?,
+        forTimeFrame timeFrame: PerpetualTimeFrame
+    ) {
+        let chart: PerpetualMarketPriceCell.Chart = if let candles {
+            .candles(candles)
+        } else {
+            .unavailable
+        }
+        charts[timeFrame] = chart
+        if selectedTimeFrame == timeFrame {
+            priceCell?.load(
+                chart: chart,
+                priceFormatStyle: viewModel.userDisplayPriceFormatStyle
+            )
+        }
+    }
+    
+}
+
+extension PerpetualMarketViewController: PerpsAutoClosingIntroCell.Delegate {
+    
+    func perpsAutoClosingIntroCell(_ cell: PerpsAutoClosingIntroCell, didRejectSuggestion suggestion: PerpsAutoClosingCondition.Behavior) {
+        var autoClosingIntroSectionIndex: Int? {
+            for (index, section) in sections.enumerated() {
+                switch section {
+                case .autoClosingIntroduction:
+                    return index
+                default:
+                    break
+                }
+            }
+            return nil
+        }
+        switch suggestion {
+        case .takeProfit:
+            AppGroupUserDefaults.Wallet.perpsOpenPositionTakeProfitDismissalDate = Date()
+        case .stopLoss:
+            AppGroupUserDefaults.Wallet.perpsOpenPositionStopLossDismissalDate = Date()
+        }
+        if let section = autoClosingIntroSectionIndex {
+            autoClosingIntroDisplay = .disabled
+            sections.remove(at: section)
+            collectionView.deleteSections(IndexSet(integer: section))
+        }
+    }
+    
+    func perpsAutoClosingIntroCell(_ cell: PerpsAutoClosingIntroCell, didAcceptSuggestion suggestion: PerpsAutoClosingCondition.Behavior) {
+        guard let positionViewModel = openPositionViewModel else {
+            return
+        }
+        switch suggestion {
+        case .takeProfit:
+            setupTakeProfit(positionViewModel: positionViewModel)
+        case .stopLoss:
+            setupStopLoss(positionViewModel: positionViewModel)
+        }
+    }
+    
+}
+
+extension PerpetualMarketViewController: PerpsMarketDescriptionCell.Delegate {
+    
+    func perpsMarketDescriptionCellDidSelectMore(_ cell: PerpsMarketDescriptionCell) {
+        collectionView.performBatchUpdates {
+            cell.isExpanded.toggle()
+        } completion: { _ in
+        }
+        guard let indexPath = self.collectionView.indexPath(for: cell) else {
+            return
+        }
+        self.collectionView.scrollToItem(at: indexPath, at: .top, animated: true)
+    }
+    
+}

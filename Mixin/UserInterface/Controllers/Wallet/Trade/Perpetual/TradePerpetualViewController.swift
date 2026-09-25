@@ -1,0 +1,862 @@
+import UIKit
+import MixinServices
+
+final class TradePerpetualViewController: UIViewController {
+    
+    var tradingWalletID: String {
+        wallet.tradingWalletID
+    }
+    
+    private weak var collectionView: UICollectionView!
+    private weak var actionView: OpenPerpetualActionView!
+    
+    private let wallet: Wallet
+    private let positionsLoader: PerpetualPositionLoader
+    private let marketLoader = PerpetualMarketLoader(request: .multiple(.all), timeInterval: 3)
+    private let maxItemCount = 3
+    private let topMoversCount = 4
+    
+    private var sections: [Section] = []
+    private var value: PerpetualPositionValue?
+    private var openPositions: [PerpetualPositionViewModel] = []
+    private var topMovers: [PerpetualMarketViewModel]?
+    private var trending: [PerpetualMarketViewModel]?
+    private var stocks: [PerpetualMarketViewModel]?
+    private var commodities: [PerpetualMarketViewModel]?
+    private var hasHistoryLoadedFromRemote = false
+    private var activities: [PerpetualOrderViewModel]?
+    
+    init(
+        wallet: Wallet,
+    ) {
+        self.wallet = wallet
+        self.positionsLoader = PerpetualPositionLoader(
+            walletID: wallet.tradingWalletID
+        )
+        super.init(nibName: nil, bundle: nil)
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("Storyboard not supported")
+    }
+    
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        
+        let config = UICollectionViewCompositionalLayoutConfiguration()
+        config.interSectionSpacing = 10
+        let layout = UICollectionViewCompositionalLayout(
+            sectionProvider: { [weak self, maxItemCount] (sectionIndex, environment) in
+                
+                func oneCell(estimatedHeight: CGFloat) -> NSCollectionLayoutSection {
+                    let itemSize = NSCollectionLayoutSize(
+                        widthDimension: .fractionalWidth(1),
+                        heightDimension: .estimated(estimatedHeight)
+                    )
+                    let item = NSCollectionLayoutItem(layoutSize: itemSize)
+                    let group: NSCollectionLayoutGroup = .vertical(layoutSize: itemSize, subitems: [item])
+                    let section = NSCollectionLayoutSection(group: group)
+                    section.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20)
+                    return section
+                }
+                
+                func multipleCells(itemCount: Int?) -> NSCollectionLayoutSection {
+                    let itemSize = if let itemCount, itemCount != 0 {
+                        NSCollectionLayoutSize(
+                            widthDimension: .fractionalWidth(1),
+                            heightDimension: .estimated(50)
+                        )
+                    } else {
+                        NSCollectionLayoutSize(
+                            widthDimension: .fractionalWidth(1),
+                            heightDimension: .absolute(195)
+                        )
+                    }
+                    let item = NSCollectionLayoutItem(layoutSize: itemSize)
+                    let group: NSCollectionLayoutGroup = .vertical(layoutSize: itemSize, subitems: [item])
+                    let section = NSCollectionLayoutSection(group: group)
+                    section.interGroupSpacing = 20
+                    section.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20)
+                    
+                    let footerHeight: CGFloat = (itemCount ?? 0) <= maxItemCount ? 20 : 56
+                    section.boundarySupplementaryItems = [
+                        NSCollectionLayoutBoundarySupplementaryItem(
+                            layoutSize: NSCollectionLayoutSize(
+                                widthDimension: .fractionalWidth(1),
+                                heightDimension: .absolute(57)
+                            ),
+                            elementKind: UICollectionView.elementKindSectionHeader,
+                            alignment: .top
+                        ),
+                        NSCollectionLayoutBoundarySupplementaryItem(
+                            layoutSize: NSCollectionLayoutSize(
+                                widthDimension: .fractionalWidth(1),
+                                heightDimension: .absolute(footerHeight)
+                            ),
+                            elementKind: UICollectionView.elementKindSectionFooter,
+                            alignment: .bottom
+                        ),
+                    ]
+                    
+                    let background: NSCollectionLayoutDecorationItem = .background(
+                        elementKind: TradeSectionBackgroundView.elementKind
+                    )
+                    background.contentInsets = section.contentInsets
+                    section.decorationItems = [background]
+                    
+                    return section
+                }
+                
+                switch self?.sections[sectionIndex] {
+                case .none, .value:
+                    return oneCell(estimatedHeight: 97)
+                case .positions:
+                    return multipleCells(itemCount: self?.openPositions.count)
+                case .topMovers:
+                    let itemSize = NSCollectionLayoutSize(
+                        widthDimension: .estimated(76),
+                        heightDimension: .estimated(85)
+                    )
+                    let item = NSCollectionLayoutItem(layoutSize: itemSize)
+                    let group: NSCollectionLayoutGroup = .horizontal(
+                        layoutSize: NSCollectionLayoutSize(
+                            widthDimension: .fractionalWidth(1),
+                            heightDimension: .estimated(85)
+                        ),
+                        subitem: item,
+                        count: 4
+                    )
+                    group.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 6, bottom: 0, trailing: 6)
+                    let section = NSCollectionLayoutSection(group: group)
+                    section.interGroupSpacing = 16
+                    section.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20)
+                    section.boundarySupplementaryItems = [
+                        NSCollectionLayoutBoundarySupplementaryItem(
+                            layoutSize: NSCollectionLayoutSize(
+                                widthDimension: .fractionalWidth(1),
+                                heightDimension: .absolute(57)
+                            ),
+                            elementKind: UICollectionView.elementKindSectionHeader,
+                            alignment: .top
+                        ),
+                        NSCollectionLayoutBoundarySupplementaryItem(
+                            layoutSize: NSCollectionLayoutSize(
+                                widthDimension: .fractionalWidth(1),
+                                heightDimension: .absolute(20)
+                            ),
+                            elementKind: UICollectionView.elementKindSectionFooter,
+                            alignment: .bottom
+                        ),
+                    ]
+                    let background: NSCollectionLayoutDecorationItem = .background(
+                        elementKind: TradeSectionBackgroundView.elementKind
+                    )
+                    background.contentInsets = section.contentInsets
+                    section.decorationItems = [background]
+                    return section
+                case .markets(let category):
+                    return multipleCells(itemCount: self?.marketItems(category: category)?.count)
+                case .activity:
+                    return multipleCells(itemCount: self?.activities?.count)
+                case .introduction:
+                    return oneCell(estimatedHeight: 90)
+                }
+            },
+            configuration: config
+        )
+        layout.register(
+            TradeSectionBackgroundView.self,
+            forDecorationViewOfKind: TradeSectionBackgroundView.elementKind
+        )
+        let collectionView = UICollectionView(frame: view.bounds, collectionViewLayout: layout)
+        collectionView.backgroundColor = R.color.background_secondary()
+        view.addSubview(collectionView)
+        collectionView.snp.makeConstraints { make in
+            make.top.leading.trailing.equalToSuperview()
+        }
+        self.collectionView = collectionView
+        
+        let actionView = R.nib.openPerpetualActionView(withOwner: nil)!
+        view.addSubview(actionView)
+        actionView.snp.makeConstraints { make in
+            make.leading.trailing.equalToSuperview()
+            make.top.equalTo(collectionView.snp.bottom)
+            make.bottom.equalTo(view.safeAreaLayoutGuide.snp.bottom)
+        }
+        actionView.loadLongShortConfiguration()
+        actionView.leftButton.addTarget(self, action: #selector(openPosition(_:)), for: .touchUpInside)
+        actionView.rightButton.addTarget(self, action: #selector(openPosition(_:)), for: .touchUpInside)
+        actionView.buttonsAvailability = .allDisabled
+        self.actionView = actionView
+        
+        collectionView.register(
+            R.nib.tradeSectionHeaderView,
+            forSupplementaryViewOfKind: UICollectionView.elementKindSectionHeader
+        )
+        collectionView.register(
+            TradeViewAllFooterView.self,
+            forSupplementaryViewOfKind: UICollectionView.elementKindSectionFooter,
+            withReuseIdentifier: TradeViewAllFooterView.reuseIdentifier
+        )
+        collectionView.register(R.nib.perpetualPositionValueCell)
+        collectionView.register(R.nib.perpetualPlaceholderCell)
+        collectionView.register(R.nib.perpetualMarketCell)
+        collectionView.register(R.nib.perpetualActivityCell)
+        collectionView.register(R.nib.perpetualIntroductionCell)
+        collectionView.register(R.nib.perpetualTopMoverCell)
+        collectionView.dataSource = self
+        collectionView.delegate = self
+        collectionView.reloadData()
+        
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(reloadOpenPositions(_:)),
+            name: PerpsPositionDAO.perpsPositionDidChangeNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(reloadMarkets(_:)),
+            name: PerpsMarketDAO.marketsDidUpdateNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(reloadOrders(_:)),
+            name: PerpsOrderDAO.perpsOrdersDidSaveNotification,
+            object: nil
+        )
+        
+        let generalItemCount = maxItemCount + 1
+        DispatchQueue.global().async { [weak self, wallet, topMoversCount] in
+            let value = PerpsPositionDAO.shared.positionValue()
+            let openPositions = PerpsPositionDAO.shared.positionItems()
+                .map { item in
+                    PerpetualPositionViewModel(wallet: wallet, position: item)
+                }
+            let markets = AggregatedMarkets.fetch(
+                topMoversCount: topMoversCount,
+                otherItemCount: generalItemCount,
+            )
+            let activities = PerpsOrderDAO.shared.orderItems(
+                offsetUpdatedAt: nil,
+                limit: generalItemCount
+            ).compactMap { order in
+                PerpetualOrderViewModel(wallet: wallet, order: order)
+            }
+            DispatchQueue.main.async {
+                guard let self else {
+                    return
+                }
+                self.value = value
+                self.openPositions = openPositions
+                if !markets.trending.isEmpty {
+                    self.topMovers = markets.topMovers
+                    self.trending = markets.trending
+                    self.stocks = markets.stocks
+                    self.commodities = markets.commodities
+                    actionView.buttonsAvailability = .allEnabled
+                }
+                self.activities = activities
+                self.sections = Section.sections(openPositionCount: openPositions.count)
+                UIView.performWithoutAnimation(self.collectionView.reloadData)
+                self.positionsLoader.start()
+            }
+        }
+    }
+    
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        positionsLoader.start()
+        marketLoader.start()
+        if !BadgeManager.shared.hasViewed(identifier: .perpsManual) {
+            BadgeManager.shared.setHasViewed(identifier: .perpsManual)
+            let manual = PerpsManual.viewController()
+            present(manual, animated: true)
+            reporter.report(event: .tradePerpsGuide, tags: ["source": "first_guide"])
+        }
+    }
+    
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        positionsLoader.stop()
+        marketLoader.stop()
+    }
+    
+    @objc private func openPosition(_ sender: UIButton) {
+        let side: PerpetualOrderSide
+        switch sender {
+        case actionView.leftButton:
+            side = .long
+        case actionView.rightButton:
+            side = .short
+        default:
+            return
+        }
+        let selector = PerpetualMarketSelectorViewController(
+            selectedCategory: .all,
+            ordering: nil,
+        )
+        selector.onSelected = { [wallet, weak self] (market) in
+            guard let self else {
+                return
+            }
+            let alreadyOpened = self.openPositions.contains { position in
+                position.marketID == market.marketID
+            }
+            self.dismiss(animated: true) {
+                let viewModel = PerpetualMarketViewModel(market: market)
+                if alreadyOpened {
+                    let market = PerpetualMarketViewController(
+                        wallet: self.wallet,
+                        viewModel: viewModel
+                    )
+                    reporter.report(
+                        event: .marketDetail,
+                        tags: ["type": "perps", "source": "perps_selector"]
+                    )
+                    self.navigationController?.pushViewController(market, animated: true)
+                } else {
+                    let open = OpenPerpsPositionViewController(
+                        wallet: wallet,
+                        side: side,
+                        presentMarketViewOnSuccess: true,
+                        viewModel: viewModel,
+                        leaderPosition: nil,
+                    )
+                    self.navigationController?.pushViewController(open, animated: true)
+                }
+            }
+        }
+        present(selector, animated: true)
+    }
+    
+}
+
+extension TradePerpetualViewController: UICollectionViewDataSource {
+    
+    func numberOfSections(in collectionView: UICollectionView) -> Int {
+        sections.count
+    }
+    
+    func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
+        switch sections[section] {
+        case .value, .introduction:
+            1
+        case .positions:
+            min(maxItemCount, openPositions.count)
+        case .topMovers:
+            if let count = topMovers?.count, count == topMoversCount * 2 {
+                count
+            } else {
+                1
+            }
+        case .markets(let category):
+            if let count = marketItems(category: category)?.count, count != 0 {
+                min(maxItemCount, count)
+            } else {
+                1
+            }
+        case .activity:
+            if let count = activities?.count, count != 0 {
+                min(maxItemCount, count)
+            } else {
+                1
+            }
+        }
+    }
+    
+    func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
+        switch sections[indexPath.section] {
+        case .value:
+            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: R.reuseIdentifier.perps_positions_value, for: indexPath)!
+            cell.loadOpenPositions(value: value)
+            return cell
+        case .positions:
+            let position = openPositions[indexPath.item]
+            switch position.state {
+            case .opening:
+                let cell = collectionView.dequeueReusableCell(withReuseIdentifier: R.reuseIdentifier.perps_activity, for: indexPath)!
+                cell.load(viewModel: position)
+                return cell
+            default:
+                let cell = collectionView.dequeueReusableCell(withReuseIdentifier: R.reuseIdentifier.perps_market, for: indexPath)!
+                cell.load(viewModel: position)
+                return cell
+            }
+        case .topMovers:
+            if let topMovers, topMovers.count == topMoversCount * 2 {
+                let cell = collectionView.dequeueReusableCell(withReuseIdentifier: R.reuseIdentifier.perps_top_mover, for: indexPath)!
+                let viewModel = topMovers[indexPath.item]
+                cell.load(viewModel: viewModel)
+                return cell
+            } else {
+                let cell = collectionView.dequeueReusableCell(withReuseIdentifier: R.reuseIdentifier.perps_placeholder, for: indexPath)!
+                if topMovers == nil {
+                    cell.activityIndicatorView.startAnimating()
+                    cell.emptyIndicatorStackView.isHidden = true
+                } else {
+                    cell.activityIndicatorView.stopAnimating()
+                    cell.titleLabel.text = R.string.localizable.no_results().uppercased()
+                    cell.emptyIndicatorStackView.isHidden = false
+                    cell.helpButton.isHidden = true
+                }
+                return cell
+            }
+        case .markets(let category):
+            let items = marketItems(category: category)
+            if let items, !items.isEmpty {
+                let cell = collectionView.dequeueReusableCell(withReuseIdentifier: R.reuseIdentifier.perps_market, for: indexPath)!
+                let viewModel = items[indexPath.item]
+                cell.load(viewModel: viewModel)
+                return cell
+            } else {
+                let cell = collectionView.dequeueReusableCell(withReuseIdentifier: R.reuseIdentifier.perps_placeholder, for: indexPath)!
+                if items == nil {
+                    cell.activityIndicatorView.startAnimating()
+                    cell.emptyIndicatorStackView.isHidden = true
+                } else {
+                    cell.activityIndicatorView.stopAnimating()
+                    cell.titleLabel.text = R.string.localizable.no_results().uppercased()
+                    cell.emptyIndicatorStackView.isHidden = false
+                    cell.helpButton.isHidden = false
+                    cell.onHelp = { [weak self] in
+                        self?.presentPerpsManual()
+                        reporter.report(event: .tradePerpsGuide, tags: ["source": "perps_home_card"])
+                    }
+                }
+                return cell
+            }
+        case .activity:
+            if let activities, !activities.isEmpty {
+                let cell = collectionView.dequeueReusableCell(withReuseIdentifier: R.reuseIdentifier.perps_activity, for: indexPath)!
+                let viewModel = activities[indexPath.item]
+                cell.load(viewModel: viewModel)
+                return cell
+            } else {
+                let cell = collectionView.dequeueReusableCell(withReuseIdentifier: R.reuseIdentifier.perps_placeholder, for: indexPath)!
+                if activities == nil {
+                    cell.activityIndicatorView.startAnimating()
+                    cell.emptyIndicatorStackView.isHidden = true
+                } else {
+                    cell.activityIndicatorView.stopAnimating()
+                    cell.titleLabel.text = R.string.localizable.no_activity().uppercased()
+                    cell.emptyIndicatorStackView.isHidden = false
+                    cell.helpButton.isHidden = false
+                    cell.onHelp = { [weak self] in
+                        self?.presentPerpsManual()
+                        reporter.report(event: .tradePerpsGuide, tags: ["source": "perps_home_card"])
+                    }
+                }
+                return cell
+            }
+        case .introduction:
+            return collectionView.dequeueReusableCell(withReuseIdentifier: R.reuseIdentifier.perps_introduction, for: indexPath)!
+        }
+    }
+    
+    func collectionView(_ collectionView: UICollectionView, viewForSupplementaryElementOfKind kind: String, at indexPath: IndexPath) -> UICollectionReusableView {
+        switch kind {
+        case UICollectionView.elementKindSectionHeader:
+            let view = collectionView.dequeueReusableSupplementaryView(ofKind: kind, withReuseIdentifier: R.reuseIdentifier.trade_section_header, for: indexPath)!
+            switch sections[indexPath.section] {
+            case .value, .introduction:
+                break
+            case .positions:
+                view.titleLabel.text = R.string.localizable.positions_count(openPositions.count)
+                view.onShowAll = { [weak self] (sender) in
+                    self?.viewOpenPositions(analyticSource: "perps_home_card_arrow")
+                }
+            case .topMovers:
+                view.titleLabel.text = R.string.localizable.perps_top_movers()
+                view.onShowAll = { [weak self] (sender) in
+                    self?.viewAllMarkets(
+                        category: nil,
+                        ordering: .init(field: .change, direction: .descending)
+                    )
+                }
+            case .markets(let category):
+                view.titleLabel.text = switch category {
+                case .trending:
+                    R.string.localizable.trending()
+                case .stocks:
+                    R.string.localizable.perps_category_stocks()
+                case .commodities:
+                    R.string.localizable.perps_category_commodities()
+                }
+                view.onShowAll = { [weak self] (sender) in
+                    self?.viewAllMarkets(category: category.perpsCategory, ordering: nil)
+                }
+            case .activity:
+                view.titleLabel.text = R.string.localizable.perps_activity()
+                view.onShowAll = { [weak self] (sender) in
+                    self?.viewActivities()
+                    reporter.report(
+                        event: .tradePerpsActivities,
+                        tags: ["source": "perps_home_card_arrow"]
+                    )
+                }
+            }
+            return view
+        default:
+            let view = collectionView.dequeueReusableSupplementaryView(ofKind: kind, withReuseIdentifier: TradeViewAllFooterView.reuseIdentifier, for: indexPath) as! TradeViewAllFooterView
+            switch sections[indexPath.section] {
+            case .value, .introduction:
+                break
+            case .positions:
+                view.viewAllButton.isHidden = openPositions.count <= maxItemCount
+                view.onViewAll = { [weak self] (sender) in
+                    self?.viewOpenPositions(analyticSource: "perps_home_card_more")
+                }
+            case .topMovers:
+                break
+            case .markets(let category):
+                view.viewAllButton.isHidden = false
+                view.onViewAll = { [weak self] (sender) in
+                    self?.viewAllMarkets(category: category.perpsCategory, ordering: nil)
+                }
+            case .activity:
+                view.viewAllButton.isHidden = (activities?.count ?? 0) <= maxItemCount
+                view.onViewAll = { [weak self] (sender) in
+                    self?.viewActivities()
+                    reporter.report(
+                        event: .tradePerpsActivities,
+                        tags: ["source": "perps_home_card_more"]
+                    )
+                }
+            }
+            return view
+        }
+    }
+    
+}
+
+extension TradePerpetualViewController: UICollectionViewDelegate {
+    
+    func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        collectionView.deselectItem(at: indexPath, animated: true)
+        switch sections[indexPath.section] {
+        case .value:
+            break
+        case .positions:
+            let position = openPositions[indexPath.item]
+            if let market = PerpsMarketDAO.shared.market(marketID: position.marketID) {
+                let viewModel = PerpetualMarketViewModel(market: market)
+                let market = PerpetualMarketViewController(
+                    wallet: wallet,
+                    viewModel: viewModel,
+                )
+                reporter.report(
+                    event: .marketDetail,
+                    tags: ["type": "perps", "source": "trade_perps"]
+                )
+                navigationController?.pushViewController(market, animated: true)
+            }
+        case .topMovers:
+            guard let topMovers, !topMovers.isEmpty else {
+                return
+            }
+            let viewModel = topMovers[indexPath.item]
+            let market = PerpetualMarketViewController(
+                wallet: wallet,
+                viewModel: viewModel,
+            )
+            reporter.report(
+                event: .marketDetail,
+                tags: ["type": "perps", "source": "trade_perps"]
+            )
+            navigationController?.pushViewController(market, animated: true)
+        case .markets(let category):
+            let items = marketItems(category: category)
+            guard let items, !items.isEmpty else {
+                return
+            }
+            let viewModel = items[indexPath.item]
+            let market = PerpetualMarketViewController(
+                wallet: wallet,
+                viewModel: viewModel,
+            )
+            reporter.report(
+                event: .marketDetail,
+                tags: ["type": "perps", "source": "trade_perps"]
+            )
+            navigationController?.pushViewController(market, animated: true)
+        case .activity:
+            guard let activities, !activities.isEmpty else {
+                return
+            }
+            let viewModel = activities[indexPath.item]
+            let activity = PerpetualOrderViewController(wallet: wallet, viewModel: viewModel)
+            navigationController?.pushViewController(activity, animated: true)
+            reporter.report(event: .tradePerpsActivityDetail, tags: ["source": "perps_home_list"])
+        case .introduction:
+            presentPerpsManual()
+            reporter.report(event: .tradePerpsGuide, tags: ["source": "perps_home_card"])
+        }
+    }
+    
+}
+
+extension TradePerpetualViewController {
+    
+    private enum MarketCategory: Equatable {
+        
+        case trending
+        case stocks
+        case commodities
+        
+        var perpsCategory: PerpetualMarket.Category? {
+            switch self {
+            case .trending:
+                    .none
+            case .stocks:
+                    .stocks
+            case .commodities:
+                    .commodities
+            }
+        }
+        
+    }
+    
+    private enum Section: Equatable {
+        
+        case value
+        case positions
+        case topMovers
+        case markets(MarketCategory)
+        case activity
+        case introduction
+        
+        static func sections(openPositionCount: Int) -> [Section] {
+            var sections: [Section] = [
+                .topMovers,
+                .markets(.trending),
+                .markets(.stocks),
+                .markets(.commodities),
+                .activity,
+            ]
+            if openPositionCount == 0 {
+                sections.insert(.introduction, at: 0)
+            } else {
+                sections.insert(contentsOf: [.value, .positions], at: 0)
+                sections.append(.introduction)
+            }
+            return sections
+        }
+        
+    }
+    
+    private struct AggregatedMarkets {
+        
+        let topMovers: [PerpetualMarketViewModel]
+        let trending: [PerpetualMarketViewModel]
+        let stocks: [PerpetualMarketViewModel]
+        let commodities: [PerpetualMarketViewModel]
+        
+        static func fetch(
+            topMoversCount: Int,
+            otherItemCount: Int
+        ) -> AggregatedMarkets {
+            let topMovers = PerpsMarketDAO.shared.availableTopMovers(count: topMoversCount)
+            let topMoverViewModels = topMovers.compactMap(PerpetualMarketViewModel.init(market:))
+            
+            let trending = PerpsMarketDAO.shared.availableMarkets(
+                category: .all,
+                ordering: .init(field: .score, direction: .descending),
+                limit: otherItemCount
+            )
+            let trendingViewModels = trending.compactMap(PerpetualMarketViewModel.init(market:))
+            
+            let stocks = PerpsMarketDAO.shared.availableMarkets(
+                category: .categorized(.stocks),
+                ordering: .init(field: .volume, direction: .descending),
+                limit: otherItemCount
+            )
+            let stockViewModels = stocks.compactMap(PerpetualMarketViewModel.init(market:))
+            
+            let commodities = PerpsMarketDAO.shared.availableMarkets(
+                category: .categorized(.commodities),
+                ordering: .init(field: .volume, direction: .descending),
+                limit: otherItemCount
+            )
+            let commoditiesViewModels = commodities.compactMap(PerpetualMarketViewModel.init(market:))
+            
+            return AggregatedMarkets(
+                topMovers: topMoverViewModels,
+                trending: trendingViewModels,
+                stocks: stockViewModels,
+                commodities: commoditiesViewModels
+            )
+        }
+        
+    }
+    
+    private func marketItems(category: MarketCategory) -> [PerpetualMarketViewModel]? {
+        switch category {
+        case .trending:
+            trending
+        case .stocks:
+            stocks
+        case .commodities:
+            commodities
+        }
+    }
+    
+    private func viewOpenPositions(analyticSource: String) {
+        reporter.report(event: .tradePerpsAllPositions, tags: ["source": analyticSource])
+        let positions = PerpetualPositionsViewController(wallet: wallet)
+        navigationController?.pushViewController(positions, animated: true)
+    }
+    
+    private func viewAllMarkets(
+        category: PerpetualMarket.Category?,
+        ordering: PerpetualMarket.Ordering?
+    ) {
+        let selector = if let category {
+            PerpetualMarketSelectorViewController(
+                selectedCategory: .categorized(category),
+                ordering: ordering
+            )
+        } else {
+            PerpetualMarketSelectorViewController(
+                selectedCategory: .all,
+                ordering: ordering
+            )
+        }
+        selector.onSelected = { [wallet, weak self] (market) in
+            guard let self else {
+                return
+            }
+            self.dismiss(animated: true) {
+                let viewModel = PerpetualMarketViewModel(market: market)
+                let market = PerpetualMarketViewController(
+                    wallet: wallet,
+                    viewModel: viewModel,
+                )
+                reporter.report(
+                    event: .marketDetail,
+                    tags: ["type": "perps", "source": "trade_perps"]
+                )
+                self.navigationController?.pushViewController(market, animated: true)
+            }
+        }
+        present(selector, animated: true)
+    }
+    
+    private func viewActivities() {
+        let activities = PerpetualActivitiesViewController(wallet: wallet)
+        navigationController?.pushViewController(activities, animated: true)
+    }
+    
+    private func presentPerpsManual() {
+        let manual = PerpsManual.viewController()
+        present(manual, animated: true)
+    }
+    
+    @objc private func reloadOpenPositions(_ notification: Notification) {
+        DispatchQueue.global().async { [weak self, wallet] in
+            let value = PerpsPositionDAO.shared.positionValue()
+            let openPositions = PerpsPositionDAO.shared.positionItems()
+                .map { item in
+                    PerpetualPositionViewModel(wallet: wallet, position: item)
+                }
+            DispatchQueue.main.async {
+                guard let self else {
+                    return
+                }
+                self.value = value
+                self.openPositions = openPositions
+                let sectionsBefore = self.sections
+                let sectionsAfter = Section.sections(openPositionCount: openPositions.count)
+                self.sections = sectionsAfter
+                UIView.performWithoutAnimation {
+                    if sectionsBefore == sectionsAfter {
+                        var sections = IndexSet()
+                        for (index, section) in self.sections.enumerated() {
+                            switch section {
+                            case .value, .positions:
+                                sections.insert(index)
+                            default:
+                                break
+                            }
+                        }
+                        self.collectionView.reloadSections(sections)
+                    } else {
+                        self.collectionView.reloadData()
+                    }
+                }
+            }
+        }
+    }
+    
+    @objc private func reloadMarkets(_ notification: Notification) {
+        let otherItemCount = maxItemCount + 1
+        let walletID = wallet.tradingWalletID
+        DispatchQueue.global().async { [weak self, topMoversCount] in
+            let markets = AggregatedMarkets.fetch(
+                topMoversCount: topMoversCount,
+                otherItemCount: otherItemCount,
+            )
+            DispatchQueue.main.async {
+                guard let self else {
+                    return
+                }
+                self.topMovers = markets.topMovers
+                self.trending = markets.trending
+                self.stocks = markets.stocks
+                self.commodities = markets.commodities
+                
+                var sections = IndexSet()
+                if let section = self.sections.firstIndex(of: .topMovers) {
+                    sections.insert(section)
+                }
+                if let section = self.sections.firstIndex(of: .markets(.trending)) {
+                    sections.insert(section)
+                }
+                if let section = self.sections.firstIndex(of: .markets(.stocks)) {
+                    sections.insert(section)
+                }
+                if let section = self.sections.firstIndex(of: .markets(.commodities)) {
+                    sections.insert(section)
+                }
+                UIView.performWithoutAnimation {
+                    self.collectionView.reloadSections(sections)
+                }
+                
+                self.actionView.buttonsAvailability = markets.trending.isEmpty ? .allDisabled : .allEnabled
+                if !self.hasHistoryLoadedFromRemote {
+                    // Load history only once, but after the markets
+                    // are loaded, to avoid missing symbols in history
+                    self.hasHistoryLoadedFromRemote = true
+                    let orders = SyncPerpsOrdersJob(walletID: walletID)
+                    ConcurrentJobQueue.shared.addJob(job: orders)
+                }
+            }
+        }
+    }
+    
+    @objc private func reloadOrders(_ notification: Notification) {
+        let limit = maxItemCount + 1
+        DispatchQueue.global().async { [weak self, wallet] in
+            let activities = PerpsOrderDAO.shared.orderItems(
+                offsetUpdatedAt: nil,
+                limit: limit
+            ).compactMap { history in
+                PerpetualOrderViewModel(wallet: wallet, order: history)
+            }
+            DispatchQueue.main.async {
+                guard let self else {
+                    return
+                }
+                self.activities = activities
+                if let section = self.sections.firstIndex(of: .activity) {
+                    UIView.performWithoutAnimation {
+                        let activity = IndexSet(integer: section)
+                        self.collectionView.reloadSections(activity)
+                    }
+                }
+            }
+        }
+    }
+    
+}

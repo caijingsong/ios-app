@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.XIB" version="3.0" toolsVersion="24765" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES">
+    <device id="retina6_12" orientation="portrait" appearance="light"/>
+    <dependencies>
+        <deployment identifier="iOS"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="24743"/>
+        <capability name="Named colors" minToolsVersion="9.0"/>
+        <capability name="collection view cell content view" minToolsVersion="11.0"/>
+        <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
+    </dependencies>
+    <objects>
+        <placeholder placeholderIdentifier="IBFilesOwner" id="-1" userLabel="File's Owner"/>
+        <placeholder placeholderIdentifier="IBFirstResponder" id="-2" customClass="UIResponder"/>
+        <collectionViewCell opaque="NO" clipsSubviews="YES" multipleTouchEnabled="YES" contentMode="center" reuseIdentifier="perps_position_header" id="k3O-Sa-2pR" customClass="PerpetualPositionHeaderCell" customModule="Mixin" customModuleProvider="target">
+            <rect key="frame" x="0.0" y="0.0" width="335" height="275"/>
+            <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
+            <collectionViewCellContentView key="contentView" opaque="NO" clipsSubviews="YES" multipleTouchEnabled="YES" contentMode="center" insetsLayoutMarginsFromSafeArea="NO" id="u9K-YF-Swi">
+                <rect key="frame" x="0.0" y="0.0" width="335" height="275"/>
+                <autoresizingMask key="autoresizingMask"/>
+                <subviews>
+                    <view contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="fZf-91-i3N" customClass="PlainTokenIconView" customModule="Mixin" customModuleProvider="target">
+                        <rect key="frame" x="132.66666666666666" y="30" width="70" height="70"/>
+                        <color key="backgroundColor" name="background"/>
+                        <constraints>
+                            <constraint firstAttribute="height" constant="70" id="9X4-WC-hIR"/>
+                            <constraint firstAttribute="width" constant="70" id="Kap-oE-9Pk"/>
+                        </constraints>
+                    </view>
+                    <stackView opaque="NO" contentMode="scaleToFill" alignment="bottom" spacing="6" translatesAutoresizingMaskIntoConstraints="NO" id="maQ-zn-Po1">
+                        <rect key="frame" x="103.33333333333333" y="110.00000000000001" width="128.66666666666669" height="48.666666666666671"/>
+                        <subviews>
+                            <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="+3.1342" textAlignment="natural" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="eHD-fO-wfw">
+                                <rect key="frame" x="0.0" y="14.666666666666671" width="90" height="34"/>
+                                <fontDescription key="fontDescription" name="DINCondensed-Bold" family="DIN Condensed" pointSize="34"/>
+                                <color key="textColor" name="text"/>
+                                <nil key="highlightedColor"/>
+                            </label>
+                            <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="USDT" textAlignment="natural" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontForContentSizeCategory="YES" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="Zi5-RD-cMd" customClass="InsetLabel" customModule="Mixin" customModuleProvider="target">
+                                <rect key="frame" x="96.000000000000014" y="34.333333333333343" width="32.666666666666671" height="14.333333333333336"/>
+                                <fontDescription key="fontDescription" style="UICTFontTextStyleCaption1"/>
+                                <color key="textColor" name="text"/>
+                                <nil key="highlightedColor"/>
+                            </label>
+                        </subviews>
+                    </stackView>
+                    <stackView opaque="NO" contentMode="scaleToFill" axis="vertical" alignment="center" spacing="15" translatesAutoresizingMaskIntoConstraints="NO" id="0oX-4c-71S">
+                        <rect key="frame" x="16" y="171.66666666666666" width="303" height="79.333333333333343"/>
+                        <subviews>
+                            <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" placeholderIntrinsicWidth="41.333333333333336" placeholderIntrinsicHeight="20.333333333333329" text="" textAlignment="natural" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="MOU-kD-Rqn" customClass="InsetLabel" customModule="Mixin" customModuleProvider="target">
+                                <rect key="frame" x="131" y="0.0" width="41.333333333333343" height="20.333333333333332"/>
+                                <fontDescription key="fontDescription" type="system" pointSize="14"/>
+                                <nil key="textColor"/>
+                                <nil key="highlightedColor"/>
+                            </label>
+                            <view contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="Spv-tC-Pb2" customClass="PillActionView" customModule="Mixin" customModuleProvider="target">
+                                <rect key="frame" x="0.0" y="35.333333333333343" width="303" height="44"/>
+                                <color key="backgroundColor" name="background_input"/>
+                                <constraints>
+                                    <constraint firstAttribute="height" constant="44" id="F7E-xe-5up"/>
+                                </constraints>
+                                <userDefinedRuntimeAttributes>
+                                    <userDefinedRuntimeAttribute type="number" keyPath="layer.cornerRadius">
+                                        <integer key="value" value="12"/>
+                                    </userDefinedRuntimeAttribute>
+                                    <userDefinedRuntimeAttribute type="boolean" keyPath="layer.masksToBounds" value="YES"/>
+                                </userDefinedRuntimeAttributes>
+                            </view>
+                        </subviews>
+                        <constraints>
+                            <constraint firstItem="Spv-tC-Pb2" firstAttribute="width" secondItem="0oX-4c-71S" secondAttribute="width" id="o2Y-7f-QaR"/>
+                        </constraints>
+                    </stackView>
+                    <button opaque="NO" contentMode="scaleToFill" contentHorizontalAlignment="center" contentVerticalAlignment="center" buttonType="system" lineBreakMode="middleTruncation" translatesAutoresizingMaskIntoConstraints="NO" id="vKA-TG-h4F">
+                        <rect key="frame" x="103.33333333333333" y="30" width="128.66666666666669" height="128.66666666666666"/>
+                        <color key="backgroundColor" white="0.0" alpha="0.0" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+                        <state key="normal" title="Button"/>
+                        <buttonConfiguration key="configuration" style="plain"/>
+                        <connections>
+                            <action selector="viewMarket:" destination="k3O-Sa-2pR" eventType="touchUpInside" id="uOB-Uh-iNm"/>
+                        </connections>
+                    </button>
+                </subviews>
+                <color key="backgroundColor" name="background"/>
+                <constraints>
+                    <constraint firstItem="0oX-4c-71S" firstAttribute="top" secondItem="maQ-zn-Po1" secondAttribute="bottom" constant="13" id="3EI-Vw-Xyx"/>
+                    <constraint firstAttribute="bottom" secondItem="0oX-4c-71S" secondAttribute="bottom" constant="24" id="A3r-xW-4Bm"/>
+                    <constraint firstItem="vKA-TG-h4F" firstAttribute="trailing" relation="greaterThanOrEqual" secondItem="fZf-91-i3N" secondAttribute="trailing" id="GoN-dK-X3O"/>
+                    <constraint firstAttribute="trailing" secondItem="0oX-4c-71S" secondAttribute="trailing" constant="16" id="KMv-NT-lnl"/>
+                    <constraint firstItem="fZf-91-i3N" firstAttribute="top" secondItem="u9K-YF-Swi" secondAttribute="top" constant="30" id="N5g-pK-ph6"/>
+                    <constraint firstItem="vKA-TG-h4F" firstAttribute="top" secondItem="fZf-91-i3N" secondAttribute="top" id="U4c-mn-gVb"/>
+                    <constraint firstItem="maQ-zn-Po1" firstAttribute="top" secondItem="fZf-91-i3N" secondAttribute="bottom" constant="10" id="cpC-Xt-zqy"/>
+                    <constraint firstAttribute="trailing" relation="greaterThanOrEqual" secondItem="maQ-zn-Po1" secondAttribute="trailing" id="foI-Xb-brY"/>
+                    <constraint firstItem="vKA-TG-h4F" firstAttribute="trailing" relation="greaterThanOrEqual" secondItem="maQ-zn-Po1" secondAttribute="trailing" id="hVg-YJ-pod"/>
+                    <constraint firstItem="0oX-4c-71S" firstAttribute="leading" secondItem="u9K-YF-Swi" secondAttribute="leading" constant="16" id="iME-h3-MEW"/>
+                    <constraint firstItem="vKA-TG-h4F" firstAttribute="bottom" secondItem="maQ-zn-Po1" secondAttribute="bottom" id="nmx-qs-XDp"/>
+                    <constraint firstItem="maQ-zn-Po1" firstAttribute="leading" relation="greaterThanOrEqual" secondItem="vKA-TG-h4F" secondAttribute="leading" id="oN0-0H-46m"/>
+                    <constraint firstItem="fZf-91-i3N" firstAttribute="leading" relation="greaterThanOrEqual" secondItem="vKA-TG-h4F" secondAttribute="leading" id="op0-WQ-QBx"/>
+                    <constraint firstItem="fZf-91-i3N" firstAttribute="centerX" secondItem="u9K-YF-Swi" secondAttribute="centerX" id="sTZ-Lu-CLU"/>
+                    <constraint firstItem="maQ-zn-Po1" firstAttribute="centerX" secondItem="u9K-YF-Swi" secondAttribute="centerX" id="toR-uy-F6j"/>
+                    <constraint firstItem="maQ-zn-Po1" firstAttribute="leading" relation="greaterThanOrEqual" secondItem="u9K-YF-Swi" secondAttribute="leading" id="v4j-yK-6lP"/>
+                </constraints>
+            </collectionViewCellContentView>
+            <color key="backgroundColor" white="0.0" alpha="0.0" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+            <connections>
+                <outlet property="actionView" destination="Spv-tC-Pb2" id="oo3-hl-hZU"/>
+                <outlet property="directionLabel" destination="MOU-kD-Rqn" id="hij-OT-CLs"/>
+                <outlet property="iconView" destination="fZf-91-i3N" id="eob-eK-Sxb"/>
+                <outlet property="symbolLabel" destination="Zi5-RD-cMd" id="lRl-xv-7sc"/>
+                <outlet property="titleLabel" destination="eHD-fO-wfw" id="V60-wl-KHt"/>
+                <outlet property="titleStackView" destination="maQ-zn-Po1" id="fHi-AU-d0H"/>
+            </connections>
+            <point key="canvasLocation" x="-700" y="153.16901408450704"/>
+        </collectionViewCell>
+    </objects>
+    <resources>
+        <namedColor name="background">
+            <color red="1" green="1" blue="1" alpha="1" colorSpace="custom" customColorSpace="displayP3"/>
+        </namedColor>
+        <namedColor name="background_input">
+            <color red="0.96100002527236938" green="0.96899998188018799" blue="0.98000001907348633" alpha="1" colorSpace="custom" customColorSpace="displayP3"/>
+        </namedColor>
+        <namedColor name="text">
+            <color red="0.0" green="0.0" blue="0.0" alpha="1" colorSpace="custom" customColorSpace="displayP3"/>
+        </namedColor>
+    </resources>
+</document>

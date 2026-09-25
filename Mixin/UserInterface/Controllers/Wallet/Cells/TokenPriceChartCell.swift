@@ -1,0 +1,233 @@
+import UIKit
+import MixinServices
+
+final class TokenPriceChartCell: UITableViewCell {
+    
+    protocol Delegate: AnyObject {
+        func tokenPriceChartCell(_ cell: TokenPriceChartCell, didSelectPeriod period: PriceHistoryPeriod)
+        func tokenPriceChartCell(_ cell: TokenPriceChartCell, didSelectPerpsOn side: PerpetualOrderSide)
+    }
+    
+    enum Change {
+        case arbitrary(change: String, color: MarketColor)
+        case deriveFromChart
+    }
+    
+    @IBOutlet weak var titleStackView: UIStackView!
+    @IBOutlet weak var titleLabel: UILabel!
+    @IBOutlet weak var rankLabel: InsetLabel!
+    @IBOutlet weak var priceLabel: UILabel!
+    @IBOutlet weak var changeLabel: MarketColoredLabel!
+    @IBOutlet weak var tokenIconView: PlainTokenIconView!
+    @IBOutlet weak var chartView: ChartView!
+    @IBOutlet weak var loadingIndicatorView: ActivityIndicatorView!
+    @IBOutlet weak var periodSelectorStackView: UIStackView!
+    
+    @IBOutlet weak var perpsActionView: UIView!
+    @IBOutlet weak var longPerpsBackgroundView: UIImageView!
+    @IBOutlet weak var longPerpsButton: UIButton!
+    @IBOutlet weak var shortPerpsBackgroundView: UIImageView!
+    @IBOutlet weak var shortPerpsButton: UIButton!
+    
+    @IBOutlet weak var periodSelectorHeightConstraint: NSLayoutConstraint!
+    
+    @IBOutlet weak var showPerpsActionConstraint: NSLayoutConstraint!
+    @IBOutlet weak var hidePerpsActionConstraint: NSLayoutConstraint!
+    
+    weak var delegate: Delegate?
+    
+    private weak var unavailableView: UIView?
+    
+    override func awakeFromNib() {
+        super.awakeFromNib()
+        titleStackView.setCustomSpacing(9, after: titleLabel)
+        titleLabel.setFont(scaledFor: .systemFont(ofSize: 14), adjustForContentSize: true)
+        rankLabel.contentInset = UIEdgeInsets(top: 1, left: 4, bottom: 1, right: 4)
+        rankLabel.layer.masksToBounds = true
+        rankLabel.layer.cornerRadius = 4
+        priceLabel.setFont(scaledFor: .systemFont(ofSize: 22, weight: .medium), adjustForContentSize: true)
+        changeLabel.setFont(scaledFor: .systemFont(ofSize: 14), adjustForContentSize: true)
+        chartView.annotateExtremums = true
+        chartView.minPointPosition = 135 / 184
+        chartView.maxPointPosition = 23 / 184
+        for (i, period) in PriceHistoryPeriod.allCases.enumerated() {
+            let button = UIButton(type: .system)
+            button.tag = i
+            let title = switch period {
+            case .day:
+                R.string.localizable.days_count_short(1).uppercased()
+            case .week:
+                R.string.localizable.weeks_count_short(1)
+            case .month:
+                R.string.localizable.months_count_short(1)
+            case .year:
+                R.string.localizable.years_count_short(1)
+            case .all:
+                R.string.localizable.all()
+            }
+            button.setTitle(title, for: .normal)
+            button.layer.cornerRadius = periodSelectorHeightConstraint.constant / 2
+            button.layer.masksToBounds = true
+            button.contentEdgeInsets = UIEdgeInsets(top: 4, left: 10, bottom: 4, right: 10)
+            periodSelectorStackView.addArrangedSubview(button)
+            button.addTarget(self, action: #selector(changePeriod(_:)), for: .touchUpInside)
+        }
+        switch AppGroupUserDefaults.User.marketColorAppearance {
+        case .greenUpRedDown:
+            longPerpsBackgroundView.tintColor = R.color.market_perps_action_background_green()
+            longPerpsButton.configuration?.baseForegroundColor = R.color.market_perps_action_foreground_green()
+            shortPerpsBackgroundView.tintColor = R.color.market_perps_action_background_red()
+            shortPerpsButton.configuration?.baseForegroundColor = R.color.market_perps_action_foreground_red()
+        case .redUpGreenDown:
+            longPerpsBackgroundView.tintColor = R.color.market_perps_action_background_red()
+            longPerpsButton.configuration?.baseForegroundColor = R.color.market_perps_action_foreground_red()
+            shortPerpsBackgroundView.tintColor = R.color.market_perps_action_background_green()
+            shortPerpsButton.configuration?.baseForegroundColor = R.color.market_perps_action_foreground_green()
+        }
+        longPerpsButton.configuration?.attributedTitle = AttributedString(
+            string: R.string.localizable.long(),
+            font: .systemFont(ofSize: 14, weight: .medium)
+        )
+        shortPerpsButton.configuration?.attributedTitle = AttributedString(
+            string: R.string.localizable.short(),
+            font: .systemFont(ofSize: 14, weight: .medium)
+        )
+    }
+    
+    @IBAction func long(_ sender: Any) {
+        delegate?.tokenPriceChartCell(self, didSelectPerpsOn: .long)
+    }
+    
+    @IBAction func short(_ sender: Any) {
+        delegate?.tokenPriceChartCell(self, didSelectPerpsOn: .short)
+    }
+    
+    func setPeriodSelection(period: PriceHistoryPeriod) {
+        guard let index = PriceHistoryPeriod.allCases.firstIndex(of: period) else {
+            return
+        }
+        setPeriodSelection(index: index)
+    }
+    
+    func updateChart(points: [ChartView.Point]?) {
+        if let points {
+            if points.count < 2 {
+                showUnavailableView()
+            } else {
+                chartView.points = points
+                hideUnavailableView()
+            }
+            loadingIndicatorView.stopAnimating()
+        } else {
+            hideUnavailableView()
+            loadingIndicatorView.startAnimating()
+        }
+    }
+    
+    func updatePriceAndChangeByMarket(
+        price: String?,
+        change: Change,
+        points: [ChartView.Point]?,
+    ) {
+        priceLabel.text = price
+        switch change {
+        case let .arbitrary(change, color):
+            changeLabel.text = change
+            changeLabel.alpha = 1
+            changeLabel.marketColor = color
+        case .deriveFromChart:
+            if let points,
+               points.count >= 2,
+               let base = points.first,
+               let now = points.last
+            {
+                updateChange(base: base, now: now)
+            } else {
+                changeLabel.alpha = 0
+            }
+        }
+    }
+    
+    func updatePriceAndChangeByChart(base: ChartView.Point, now: ChartView.Point) {
+        priceLabel.text = CurrencyFormatter.localizedString(
+            from: now.value * Currency.current.decimalRate,
+            format: .fiatMoneyPrice,
+            sign: .never,
+            symbol: .currencySymbol
+        )
+        updateChange(base: base, now: now)
+    }
+    
+    func showPerpsActions() {
+        showPerpsActionConstraint.priority = .defaultHigh
+        hidePerpsActionConstraint.priority = .defaultLow
+        perpsActionView.isHidden = false
+    }
+    
+    func hidePerpsActions() {
+        showPerpsActionConstraint.priority = .defaultLow
+        hidePerpsActionConstraint.priority = .defaultHigh
+        perpsActionView.isHidden = true
+    }
+    
+    @objc private func changePeriod(_ sender: UIButton) {
+        setPeriodSelection(index: sender.tag)
+        chartView.points = []
+        hideUnavailableView()
+        loadingIndicatorView.startAnimating()
+        let period = PriceHistoryPeriod.allCases[sender.tag]
+        delegate?.tokenPriceChartCell(self, didSelectPeriod: period)
+    }
+    
+}
+
+extension TokenPriceChartCell {
+    
+    private func showUnavailableView() {
+        let unavailableView: UIView
+        if let view = self.unavailableView {
+            unavailableView = view
+        } else {
+            unavailableView = PriceDataUnavailableView()
+            contentView.addSubview(unavailableView)
+            unavailableView.snp.makeConstraints { make in
+                make.top.equalTo(titleStackView.snp.bottom).offset(24)
+                make.leading.equalToSuperview().offset(16)
+                make.trailing.equalToSuperview().offset(-16)
+                make.bottom.equalToSuperview().offset(-20)
+            }
+            self.unavailableView = unavailableView
+        }
+        unavailableView.isHidden = false
+        periodSelectorStackView.isHidden = true
+    }
+    
+    private func hideUnavailableView() {
+        unavailableView?.isHidden = true
+        periodSelectorStackView.isHidden = false
+    }
+    
+    private func updateChange(base: ChartView.Point, now: ChartView.Point) {
+        let change = (now.value - base.value) / base.value
+        if let changePercentage = NumberFormatter.percentage.string(decimal: change) {
+            changeLabel.text = changePercentage
+            changeLabel.alpha = 1
+        } else {
+            changeLabel.alpha = 0
+        }
+        changeLabel.marketColor = .byValue(change)
+    }
+    
+    private func setPeriodSelection(index: Int) {
+        for case let button as UIButton in periodSelectorStackView.arrangedSubviews {
+            if button.tag == index {
+                button.backgroundColor = R.color.background_secondary()
+                button.setTitleColor(R.color.text(), for: .normal)
+            } else {
+                button.backgroundColor = .clear
+                button.setTitleColor(R.color.text_quaternary(), for: .normal)
+            }
+        }
+    }
+    
+}

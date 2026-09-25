@@ -1,0 +1,438 @@
+import Foundation
+import GRDB
+
+public class Market: Codable, DatabaseColumnConvertible, MixinFetchableRecord {
+    
+    public enum CodingKeys: String, CodingKey, CaseIterable {
+        case coinID = "coin_id"
+        case name = "name"
+        case symbol = "symbol"
+        case iconURL = "icon_url"
+        case currentPrice = "current_price"
+        case marketCap = "market_cap"
+        case marketCapRank = "market_cap_rank"
+        case totalVolume = "total_volume"
+        case high24H = "high_24h"
+        case low24H = "low_24h"
+        case priceChange24H = "price_change_24h"
+        case priceChangePercentage1H = "price_change_percentage_1h"
+        case priceChangePercentage24H = "price_change_percentage_24h"
+        case priceChangePercentage7D = "price_change_percentage_7d"
+        case priceChangePercentage30D = "price_change_percentage_30d"
+        case marketCapChange24H = "market_cap_change_24h"
+        case marketCapChangePercentage24H = "market_cap_change_percentage_24h"
+        case circulatingSupply = "circulating_supply"
+        case totalSupply = "total_supply"
+        case maxSupply = "max_supply"
+        case ath = "ath"
+        case athChangePercentage = "ath_change_percentage"
+        case athDate = "ath_date"
+        case atl = "atl"
+        case atlChangePercentage = "atl_change_percentage"
+        case atlDate = "atl_date"
+        case assetIDs = "asset_ids"
+        case sparklineIn7D = "sparkline_in_7d"
+        case sparklineIn24H = "sparkline_in_24h"
+        case updatedAt = "updated_at"
+        case descriptions = "descriptions"
+        case perpsMarketID = "perps_market_id"
+    }
+    
+    public let coinID: String
+    public let name: String
+    public let symbol: String
+    public let iconURL: String
+    public let currentPrice: String
+    public let marketCap: String
+    public let marketCapRank: String
+    public let totalVolume: String
+    public let high24H: String
+    public let low24H: String
+    public let priceChange24H: String
+    public let priceChangePercentage1H: String
+    public let priceChangePercentage24H: String
+    public let priceChangePercentage7D: String
+    public let priceChangePercentage30D: String
+    public let marketCapChange24H: String
+    public let marketCapChangePercentage24H: String
+    public let circulatingSupply: String
+    public let totalSupply: String
+    public let maxSupply: String
+    public let ath: String
+    public let athChangePercentage: String
+    public let athDate: String
+    public let atl: String
+    public let atlChangePercentage: String
+    public let atlDate: String
+    public let assetIDs: [String]?
+    public let sparklineIn7D: String
+    public let sparklineIn24H: String
+    public let updatedAt: String
+    public let descriptions: [String: String]?
+    public let perpsMarketID: String?
+    
+    public private(set) lazy var decimalMarketCap = Decimal(string: marketCap, locale: .enUSPOSIX) ?? 0
+    public private(set) lazy var localizedMarketCap = NamedLargeNumberFormatter.string(
+        number: decimalMarketCap * Currency.current.decimalRate,
+        currency: .current,
+    )
+    
+    public private(set) lazy var numberedRank: String? = {
+        if marketCapRank.isEmpty  {
+            nil
+        } else {
+            "#" + marketCapRank
+        }
+    }()
+    
+    public private(set) lazy var decimalVolume = Decimal(string: totalVolume, locale: .enUSPOSIX) ?? 0
+    public private(set) lazy var prettyVolume = NamedLargeNumberFormatter.string(
+        number: decimalVolume * Currency.current.decimalRate,
+        currency: .current,
+    )
+    
+    public private(set) lazy var localizedUSDPrice = CurrencyFormatter.localizedString(
+        from: decimalPrice,
+        format: .fiatMoneyPrice,
+        sign: .never,
+        symbol: .custom("USD")
+    )
+    
+    public private(set) lazy var localizedPrice = CurrencyFormatter.localizedString(
+        from: decimalPrice * Currency.current.decimalRate,
+        format: .fiatMoneyPrice,
+        sign: .never,
+        symbol: .currencySymbol
+    )
+    
+    public private(set) lazy var decimalPrice = Decimal(string: currentPrice, locale: .enUSPOSIX) ?? 0
+    public private(set) lazy var shortPrice = ShortPriceFormatter.string(usdPrice: decimalPrice)
+    
+    public private(set) lazy var decimalPriceChangePercentage7D = Decimal(string: priceChangePercentage7D, locale: .enUSPOSIX) ?? 0
+    public private(set) lazy var localizedPriceChangePercentage7D = NumberFormatter.percentage.string(decimal: decimalPriceChangePercentage7D / 100) ?? ""
+    public private(set) lazy var sparklineIn7DURL = URL(string: sparklineIn7D)
+    
+    public private(set) lazy var decimalPriceChangePercentage24H = Decimal(string: priceChangePercentage24H, locale: .enUSPOSIX) ?? 0
+    public private(set) lazy var localizedPriceChangePercentage24H = NumberFormatter.percentage.string(decimal: decimalPriceChangePercentage24H / 100) ?? ""
+    public private(set) lazy var localizedPriceChangePercentage24HAlwaysSign = PercentageFormatter.string(from: decimalPriceChangePercentage24H / 100, format: .pretty, sign: .always)
+    public private(set) lazy var sparklineIn24HURL = URL(string: sparklineIn24H)
+    
+    public private(set) lazy var localizedDescription: String? = {
+        if let description = descriptions?[Self.languageIdentifier],
+           !description.isEmpty
+        {
+            return description
+        } else {
+            return nil
+        }
+    }()
+    
+    init(
+        coinID: String, name: String, symbol: String, iconURL: String, currentPrice: String,
+        marketCap: String, marketCapRank: String, totalVolume: String, high24H: String,
+        low24H: String, priceChange24H: String, priceChangePercentage1H: String,
+        priceChangePercentage24H: String, priceChangePercentage7D: String,
+        priceChangePercentage30D: String, marketCapChange24H: String,
+        marketCapChangePercentage24H: String, circulatingSupply: String, 
+        totalSupply: String, maxSupply: String, ath: String, athChangePercentage: String,
+        athDate: String, atl: String, atlChangePercentage: String, atlDate: String,
+        assetIDs: [String]?, sparklineIn7D: String, sparklineIn24H: String, updatedAt: String,
+        descriptions: [String: String]?, perpsMarketID: String?,
+    ) {
+        self.coinID = coinID
+        self.name = name
+        self.symbol = symbol
+        self.iconURL = iconURL
+        self.currentPrice = currentPrice
+        self.marketCap = marketCap
+        self.marketCapRank = marketCapRank
+        self.totalVolume = totalVolume
+        self.high24H = high24H
+        self.low24H = low24H
+        self.priceChange24H = priceChange24H
+        self.priceChangePercentage1H = priceChangePercentage1H
+        self.priceChangePercentage24H = priceChangePercentage24H
+        self.priceChangePercentage7D = priceChangePercentage7D
+        self.priceChangePercentage30D = priceChangePercentage30D
+        self.marketCapChange24H = marketCapChange24H
+        self.marketCapChangePercentage24H = marketCapChangePercentage24H
+        self.circulatingSupply = circulatingSupply
+        self.totalSupply = totalSupply
+        self.maxSupply = maxSupply
+        self.ath = ath
+        self.athChangePercentage = athChangePercentage
+        self.athDate = athDate
+        self.atl = atl
+        self.atlChangePercentage = atlChangePercentage
+        self.atlDate = atlDate
+        self.assetIDs = assetIDs
+        self.sparklineIn7D = sparklineIn7D
+        self.sparklineIn24H = sparklineIn24H
+        self.updatedAt = updatedAt
+        self.descriptions = descriptions
+        self.perpsMarketID = perpsMarketID
+    }
+    
+    public func replacingMarketCapRank(with rank: String) -> Market {
+        Market(
+            coinID: coinID,
+            name: name,
+            symbol: symbol,
+            iconURL: iconURL,
+            currentPrice: currentPrice,
+            marketCap: marketCap,
+            marketCapRank: rank,
+            totalVolume: totalVolume,
+            high24H: high24H,
+            low24H: low24H,
+            priceChange24H: priceChange24H,
+            priceChangePercentage1H: priceChangePercentage1H,
+            priceChangePercentage24H: priceChangePercentage24H,
+            priceChangePercentage7D: priceChangePercentage7D,
+            priceChangePercentage30D: priceChangePercentage30D,
+            marketCapChange24H: marketCapChange24H,
+            marketCapChangePercentage24H: marketCapChangePercentage24H,
+            circulatingSupply: circulatingSupply,
+            totalSupply: totalSupply,
+            maxSupply: maxSupply,
+            ath: ath,
+            athChangePercentage: athChangePercentage,
+            athDate: athDate,
+            atl: atl,
+            atlChangePercentage: atlChangePercentage,
+            atlDate: atlDate,
+            assetIDs: assetIDs,
+            sparklineIn7D: sparklineIn7D,
+            sparklineIn24H: sparklineIn24H,
+            updatedAt: updatedAt,
+            descriptions: descriptions,
+            perpsMarketID: perpsMarketID,
+        )
+    }
+    
+}
+
+extension Market: TableRecord, PersistableRecord {
+    
+    public static let databaseTableName = "markets"
+    
+}
+
+extension Market {
+    
+    public static let languageIdentifier = if #available(iOS 16, *) {
+        Locale.current.language.languageCode?.identifier ?? "en"
+    } else {
+        Locale.current.languageCode ?? "en"
+    }
+    
+}
+
+extension Market {
+    
+    public enum QueryCategory: CaseIterable {
+        case watchlist
+        case trending
+        case topGainer
+        case topLoser
+        case all
+        case stock
+    }
+    
+    public enum RequestCategory: String, CaseIterable {
+        case all
+        case favorite
+        case trending
+        case stocks
+        case topGainers = "top_gainers"
+        case topLosers = "top_losers"
+        case featured = "featured"
+    }
+    
+}
+
+extension Market {
+    
+    public enum DatabaseCategory: Int {
+        case trending   = 1
+        case topGainer  = 2
+        case topLoser   = 3
+        case stock      = 4
+        case featured   = 5
+    }
+    
+    struct CategoryStorage: Encodable, MixinEncodableRecord, PersistableRecord {
+        
+        enum CodingKeys: String, CodingKey {
+            case coinID = "coin_id"
+            case category = "category"
+        }
+        
+        static let databaseTableName = "market_categories"
+        
+        let coinID: String
+        let category: Int
+        
+        init(coinID: String, category: DatabaseCategory) {
+            self.coinID = coinID
+            self.category = category.rawValue
+        }
+        
+    }
+    
+}
+
+extension Market {
+    
+    struct MarketCapRankStorage: Codable, MixinEncodableRecord, PersistableRecord {
+        
+        enum CodingKeys: String, CodingKey {
+            case coinID = "coin_id"
+            case marketCapRank = "market_cap_rank"
+            case updatedAt = "updated_at"
+        }
+        
+        static let databaseTableName = "market_cap_ranks"
+        
+        let coinID: String
+        let marketCapRank: String
+        let updatedAt: String
+        
+    }
+    
+    var rankStorage: MarketCapRankStorage {
+        MarketCapRankStorage(
+            coinID: coinID,
+            marketCapRank: marketCapRank,
+            updatedAt: updatedAt
+        )
+    }
+    
+}
+
+extension Market {
+    
+    struct FavoriteStorage: Codable, MixinFetchableRecord, MixinEncodableRecord, TableRecord, PersistableRecord, DatabaseColumnConvertible {
+        
+        enum CodingKeys: String, CodingKey {
+            case coinID = "coin_id"
+            case isFavored = "is_favored"
+            case createdAt = "created_at"
+        }
+        
+        static let databaseTableName = "market_favored"
+        
+        let coinID: String
+        let isFavored: Bool
+        let createdAt: String
+        
+        init(coinID: String, isFavored: Bool, createdAt: String) {
+            self.coinID = coinID
+            self.isFavored = isFavored
+            self.createdAt = createdAt
+        }
+        
+    }
+    
+}
+
+extension Market {
+    
+    private enum ShortPriceFormatter {
+        
+        static func string(usdPrice: Decimal) -> String {
+            let price = usdPrice * Currency.current.decimalRate
+            let formatStyle = Decimal.FormatStyle.Currency
+                .currency(code: Currency.current.code)
+                .presentation(.narrow)
+                .rounded(rule: .towardZero)
+            return if price >= 1 {
+                if #available(iOS 18, *) {
+                    price.formatted(
+                        formatStyle
+                            .notation(.compactName)
+                            .precision(.fractionLength(0...2))
+                    )
+                } else {
+                    if price >= 1000 {
+                        (price / 1000).formatted(
+                            formatStyle.precision(.fractionLength(0...2))
+                        ) + "K"
+                    } else {
+                        price.formatted(
+                            formatStyle.precision(.fractionLength(0...2))
+                        )
+                    }
+                }
+            } else if price >= 0.0001 {
+                price.formatted(
+                    formatStyle.precision(.fractionLength(0...4))
+                )
+            } else {
+                "<" + Decimal(0.00001).formatted(
+                    formatStyle.precision(.fractionLength(0...4))
+                )
+            }
+        }
+        
+    }
+    
+}
+
+extension Market {
+    
+    public struct Ordering: Equatable, Hashable, CustomDebugStringConvertible {
+        
+        public enum Field: Equatable, Hashable {
+            case marketCap
+            case volume
+            case price
+            case change(MarketChangePeriod)
+            case rowid
+            case addedAt
+        }
+        
+        public let field: Field
+        public let direction: OrderingDirection
+        
+        public var debugDescription: String {
+            var description = switch field {
+            case .marketCap:
+                "MarketCap"
+            case .volume:
+                "Volume"
+            case .price:
+                "Price"
+            case .change(let period):
+                switch period {
+                case .twentyFourHours:
+                    "24H%"
+                case .sevenDays:
+                    "7D%"
+                }
+            case .rowid:
+                "RowID"
+            case .addedAt:
+                "AddedAt"
+            }
+            switch direction {
+            case .ascending:
+                description += " ↑"
+            case .descending:
+                description += " ↓"
+            }
+            return description
+        }
+        
+        public init(field: Field, direction: OrderingDirection) {
+            self.field = field
+            self.direction = direction
+        }
+        
+        public func directionToggled() -> Ordering {
+            Ordering(field: field, direction: direction.toggled())
+        }
+        
+    }
+    
+}

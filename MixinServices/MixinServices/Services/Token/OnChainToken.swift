@@ -1,0 +1,69 @@
+import Foundation
+
+public protocol OnChainToken: Token {
+    
+    var chainID: String { get }
+    var assetKey: String { get }
+    var precision: Int16 { get }
+    
+    // The `precision` could be invalid due to historical reasons
+    var isPrecisionReady: Bool { get }
+    
+    var chain: Chain? { get }
+    var chainTag: String? { get }
+    
+}
+
+extension OnChainToken {
+    
+    public var isEOSChain: Bool {
+        chainID == ChainID.eos
+    }
+    
+    public var isERC20: Bool {
+        chainID == ChainID.ethereum
+    }
+    
+    public var memoPossibility: WithdrawalMemoPossibility {
+        WithdrawalMemoPossibility(rawValue: chain?.withdrawalMemoPossibility) ?? .possible
+    }
+    
+    public var depositNetworkName: String? {
+        switch chainID {
+        case ChainID.ethereum:
+            "Ethereum (ERC-20)"
+        case ChainID.avalancheXChain:
+            "Avalanche X-Chain"
+        case ChainID.bnbBeaconChain:
+            "BNB Beacon Chain (BEP-2)"
+        case ChainID.bnbSmartChain:
+            "BNB Smart Chain (BEP-20)"
+        case ChainID.tron:
+            assetKey.isDigitsOnly ? "TRON (TRC-10)" : "TRON (TRC-20)"
+        case ChainID.bitShares:
+            "BitShares"
+        case ChainID.opMainnet:
+            "Optimism"
+        case ChainID.arbitrumOne:
+            "Arbitrum"
+        case ChainID.hyperEVM:
+            "HyperEVM"
+        case ChainID.xLayer:
+            "X Layer"
+        case ChainID.robinhood:
+            "Robinhood"
+        case ChainID.arc:
+            "Arc"
+        default:
+            chain?.name
+        }
+    }
+    
+    public var positionalValue: Decimal? {
+        guard isPrecisionReady else {
+            return nil
+        }
+        return Decimal(sign: .plus, exponent: Int(precision), significand: 1)
+    }
+    
+}

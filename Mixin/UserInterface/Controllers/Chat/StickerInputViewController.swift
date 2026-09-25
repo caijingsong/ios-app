@@ -1,4 +1,5 @@
 import UIKit
+import MixinServices
 
 class StickerInputViewController: UIViewController {
     
@@ -6,14 +7,14 @@ class StickerInputViewController: UIViewController {
     
     private var pageViewController: UIPageViewController!
     private let modelController = StickerInputModelController()
-    private let albumCellReuseId = "AlbumCollectionViewCell"
-    private var officialAlbums = [Album]()
+    private var addedAlbums = [Album]()
     private var currentIndex = NSNotFound
     private var pageScrollView: UIScrollView?
     private var isScrollingByAlbumSelection = false
+    private var currentPage: StickersCollectionViewController!
     
     var numberOfAllAlbums: Int {
-        return officialAlbums.count + modelController.numberOfFixedControllers
+        return addedAlbums.count + modelController.numberOfFixedControllers
     }
     
     var animated = false {
@@ -35,6 +36,29 @@ class StickerInputViewController: UIViewController {
         albumsCollectionView.delegate = self
         pageScrollView = pageViewController.view.subviews.first(where: { $0 is UIScrollView }) as? UIScrollView
         pageScrollView?.delegate = self
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(reload),
+                                               name: AlbumDAO.addedAlbumsDidChangeNotification,
+                                               object: nil)
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(reload),
+                                               name: AlbumDAO.albumsOrderDidChangeNotification,
+                                               object: nil)
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(reloadStoreCell),
+                                               name: AppGroupUserDefaults.User.hasNewStickersDidChangeNotification,
+                                               object: nil)
+        StickerStore.refreshStickersIfNeeded()
+    }
+    
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        self.animated = true
+    }
+    
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        self.animated = false
     }
     
     override func prepare(for segue: UIStoryboardSegue, sender: Any?) {
@@ -44,12 +68,12 @@ class StickerInputViewController: UIViewController {
         }
     }
     
-    func reload() {
-        DispatchQueue.global(qos: .userInitiated).async {
-            self.officialAlbums = AlbumDAO.shared.getAlbums()
+    @objc func reload() {
+        StickerStore.loadAddedAlbums { albumItems in
             self.modelController.reloadRecentFavoriteStickers()
-            self.modelController.reloadOfficialStickers(albums: self.officialAlbums)
             DispatchQueue.main.async {
+                self.addedAlbums = albumItems.map(\.album)
+                self.modelController.reloadAddedStickers(stickers: albumItems.map(\.stickers))
                 self.albumsCollectionView.reloadData()
                 let initialViewControllers: [UIViewController]
                 if let initialViewController = self.modelController.initialViewController {
@@ -57,6 +81,7 @@ class StickerInputViewController: UIViewController {
                     let index = initialViewController.index
                     self.currentIndex = index
                     self.selectAlbum(at: index)
+                    self.currentPage = initialViewController
                 } else {
                     initialViewControllers = []
                 }
@@ -66,8 +91,12 @@ class StickerInputViewController: UIViewController {
         }
     }
     
-    static func instance() -> StickerInputViewController {
-        return Storyboard.chat.instantiateViewController(withIdentifier: "sticker_input") as! StickerInputViewController
+}
+
+extension StickerInputViewController: ConversationInputInteractiveResizableViewController {
+    
+    var interactiveResizableScrollView: UIScrollView {
+        return currentPage.collectionView
     }
     
 }
@@ -79,21 +108,20 @@ extension StickerInputViewController: UICollectionViewDataSource {
     }
     
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-        let cell = collectionView.dequeueReusableCell(withReuseIdentifier: albumCellReuseId, for: indexPath) as! AlbumCollectionViewCell
+        let cell = collectionView.dequeueReusableCell(withReuseIdentifier: R.reuseIdentifier.sticker_album, for: indexPath)!
         switch indexPath.row {
         case 0:
-            cell.imageView.image = #imageLiteral(resourceName: "ic_recent_stickers")
-            cell.imageView.contentMode = .center
+            cell.imageView.load(image: R.image.ic_sticker_store(), contentMode: .center)
+            cell.dotImageView.isHidden = !AppGroupUserDefaults.User.hasNewStickers
         case 1:
-            cell.imageView.image = #imageLiteral(resourceName: "ic_sticker_favorite")
-            cell.imageView.contentMode = .center
+            cell.imageView.load(image: R.image.ic_recent_stickers(), contentMode: .center)
         case 2:
-            cell.imageView.image = #imageLiteral(resourceName: "ic_gif")
-            cell.imageView.contentMode = .center
+            cell.imageView.load(image: R.image.ic_sticker_favorite(), contentMode: .center)
+        case 3:
+            cell.imageView.load(image: R.image.ic_gif(), contentMode: .center)
         default:
-            if let url = URL(string: officialAlbums[indexPath.row - modelController.numberOfFixedControllers].iconUrl) {
-                cell.imageView.sd_setImage(with: url, completed: nil)
-            }
+            let album = addedAlbums[indexPath.row - modelController.numberOfFixedControllers]
+            cell.imageView.load(url: album.iconUrl, persistent: true)
             cell.imageView.contentMode = .scaleAspectFit
         }
         return cell
@@ -105,6 +133,18 @@ extension StickerInputViewController: UICollectionViewDelegate {
     
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         let selectedIndex = indexPath.item
+        if selectedIndex == 0 {
+            let viewController = R.storyboard.chat.sticker_store()!
+            let navigationController = UINavigationController(rootViewController: viewController)
+            navigationController.modalPresentationStyle = .fullScreen
+            navigationController.setNavigationBarHidden(true, animated: false)
+            present(navigationController, animated: true, completion: nil)
+            collectionView.selectItem(at: IndexPath(item: currentIndex, section: 0), animated: false, scrollPosition: .centeredVertically)
+            if AppGroupUserDefaults.User.hasNewStickers {
+                AppGroupUserDefaults.User.hasNewStickers = false
+            }
+            return
+        }
         guard selectedIndex != currentIndex, !isScrollingByAlbumSelection else {
             return
         }
@@ -124,10 +164,15 @@ extension StickerInputViewController: UICollectionViewDelegate {
     }
     
     func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
+        (cell as? AlbumCollectionViewCell)?.imageView.startAnimating()
         guard let selectedIndexPaths = albumsCollectionView.indexPathsForSelectedItems, selectedIndexPaths.contains(indexPath) else {
             return
         }
         cell.isSelected = true
+    }
+
+    func collectionView(_ collectionView: UICollectionView, didEndDisplaying cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
+        (cell as? AlbumCollectionViewCell)?.imageView.stopAnimating()
     }
     
 }
@@ -163,6 +208,7 @@ extension StickerInputViewController: UIScrollViewDelegate {
             if width > maxWidth {
                 maxWidth = width
                 focusedIndex = vc.index
+                currentPage = vc
             }
         }
         selectAlbum(at: focusedIndex)
@@ -180,7 +226,7 @@ extension StickerInputViewController: UIScrollViewDelegate {
 extension StickerInputViewController {
     
     private func selectAlbum(at index: Int) {
-        guard index >= 0 && index < numberOfAllAlbums else {
+        guard index > 0 && index < numberOfAllAlbums else {
             return
         }
         let indexPath = IndexPath(item: index, section: 0)
@@ -216,13 +262,15 @@ extension StickerInputViewController {
     }
     
     private func updatePagesAnimation() {
-        for case let vc as StickersCollectionViewController in pageViewController.children {
-            if vc.index == currentIndex {
-                vc.animated = true
-            } else {
-                vc.animated = false
-            }
+        for case let child as StickersCollectionViewController in pageViewController.children {
+            let isDisplaying = child.index == currentIndex
+            child.isDisplaying = isDisplaying
+            child.animated = isDisplaying
         }
+    }
+    
+    @objc private func reloadStoreCell() {
+        albumsCollectionView.reloadItems(at: [IndexPath(item: 0, section: 0)])
     }
     
 }

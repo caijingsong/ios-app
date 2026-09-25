@@ -1,0 +1,88 @@
+import Foundation
+import GRDB
+
+public enum AppCategory: String, Codable {
+    case OTHER
+    case WALLET
+    case TRADING
+    case BUSINESS
+    case SOCIAL
+    case SHOPPING
+    case EDUCATION
+    case NEWS
+    case TOOLS
+    case GAMES
+    case BOOKS
+    case MUSIC
+    case PHOTO
+    case VIDEO
+}
+
+public struct App {
+    
+    public let appId: String
+    public let appNumber: String
+    public let redirectUri: String
+    public let name: String
+    public let iconUrl: String
+    public let capabilities: [String]?
+    public let resourcePatterns: [String]?
+    public let homeUri: String
+    public let creatorId: String
+    public let updatedAt: String?
+    public let category: String
+    
+    public init(appId: String, appNumber: String, redirectUri: String, name: String, iconUrl: String, capabilities: [String]?, resourcePatterns: [String]?, homeUri: String, creatorId: String, updatedAt: String?, category: String) {
+        self.appId = appId
+        self.appNumber = appNumber
+        self.redirectUri = redirectUri
+        self.name = name
+        self.iconUrl = iconUrl
+        self.capabilities = capabilities
+        self.resourcePatterns = resourcePatterns
+        self.homeUri = homeUri
+        self.creatorId = creatorId
+        self.updatedAt = updatedAt
+        self.category = category
+    }
+    
+}
+
+extension App: Codable, DatabaseColumnConvertible, MixinFetchableRecord, MixinEncodableRecord {
+    
+    public enum CodingKeys: String, CodingKey {
+        case appId = "app_id"
+        case appNumber = "app_number"
+        case redirectUri = "redirect_uri"
+        case name
+        case category
+        case iconUrl = "icon_url"
+        case capabilities = "capabilites"
+        case resourcePatterns = "resource_patterns"
+        case homeUri = "home_uri"
+        case creatorId = "creator_id"
+        case updatedAt = "updated_at"
+    }
+    
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        appId = try container.decode(String.self, forKey: .appId)
+        appNumber = try container.decodeIfPresent(String.self, forKey: .appNumber) ?? ""
+        redirectUri = try container.decodeIfPresent(String.self, forKey: .redirectUri) ?? ""
+        name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
+        iconUrl = try container.decodeIfPresent(String.self, forKey: .iconUrl) ?? ""
+        capabilities = try container.decodeIfPresent([String].self, forKey: .capabilities)
+        resourcePatterns = try container.decodeIfPresent([String].self, forKey: .resourcePatterns)
+        homeUri = try container.decodeIfPresent(String.self, forKey: .homeUri) ?? ""
+        creatorId = try container.decodeIfPresent(String.self, forKey: .creatorId) ?? ""
+        updatedAt = try container.decodeIfPresent(String.self, forKey: .updatedAt)
+        category = try container.decodeIfPresent(String.self, forKey: .category) ?? ""
+    }
+    
+}
+
+extension App: TableRecord, PersistableRecord {
+    
+    public static let databaseTableName = "apps"
+    
+}

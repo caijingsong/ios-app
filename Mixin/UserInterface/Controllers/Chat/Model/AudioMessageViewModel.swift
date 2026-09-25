@@ -1,15 +1,37 @@
 import UIKit
+import MixinServices
 
 class AudioMessageViewModel: CardMessageViewModel, AttachmentLoadingViewModel {
+    
+    override class var supportsQuoting: Bool {
+        true
+    }
+    
+    override class var isContentWidthLimited: Bool {
+        false
+    }
     
     let length: String
     let waveform: Waveform
     
+    var transcriptId: String?
+    var isLoading = false
     var progress: Double?
-    var showPlayIconAfterFinished: Bool = true
+    var showPlayIconOnMediaStatusDone: Bool = true
     var operationButtonStyle: NetworkOperationButton.Style = .expired
     var operationButtonIsHidden = false
     var playbackStateIsHidden = true
+    var downloadIsTriggeredByUser = false
+    
+    var isUnread: Bool {
+        transcriptId == nil
+            && message.userId != myUserId
+            && mediaStatus != MediaStatus.READ.rawValue
+    }
+    
+    var shouldAutoDownload: Bool {
+        return true
+    }
     
     var automaticallyLoadsAttachment: Bool {
         return true
@@ -23,53 +45,77 @@ class AudioMessageViewModel: CardMessageViewModel, AttachmentLoadingViewModel {
             message.mediaStatus = newValue
             if newValue != MediaStatus.PENDING.rawValue {
                 progress = nil
+                isLoading = false
             }
             updateOperationButtonStyle()
             updateButtonsHidden()
         }
     }
     
-    override var size: CGSize {
-        return CGSize(width: contentWidth + leftLeadingMargin + leftTrailingMargin + 48 + 10, height: 72)
-    }
-    
-    private let contentWidth: CGFloat
+    private let waveformWidth: CGFloat
 
-    override init(message: MessageItem, style: Style, fits layoutWidth: CGFloat) {
+    override init(message: MessageItem) {
         let duration = Int(message.mediaDuration ?? 0)
         let seconds = Int(round(Double(duration) / millisecondsPerSecond))
         length = mediaDurationFormatter.string(from: TimeInterval(seconds)) ?? ""
-        contentWidth = WaveformView.estimatedWidth(forDurationInSeconds: seconds)
+        waveformWidth = WaveformView.estimatedWidth(forDurationInSeconds: seconds)
         self.waveform = Waveform(data: message.mediaWaveform, durationInSeconds: seconds)
-        super.init(message: message, style: style, fits: layoutWidth)
+        super.init(message: message)
         updateOperationButtonStyle()
         updateButtonsHidden()
     }
     
-    func beginAttachmentLoading() {
-        guard message.mediaStatus == MediaStatus.PENDING.rawValue || message.mediaStatus == MediaStatus.CANCELED.rawValue else {
-            return
-        }
-        MessageDAO.shared.updateMediaStatus(messageId: message.messageId, status: .PENDING, conversationId: message.conversationId)
-        let job: UploadOrDownloadJob
-        if messageIsSentByMe {
-            job = AudioUploadJob(message: Message.createMessage(message: message))
-        } else {
-            job = AudioDownloadJob(messageId: message.messageId, mediaMimeType: message.mediaMimeType)
-        }
-        ConcurrentJobQueue.shared.addJob(job: job)
+    override func layout(width: CGFloat, style: MessageViewModel.Style) {
+        contentWidth = Self.leftViewSideLength
+            + Self.spacing
+            + waveformWidth
+        super.layout(width: width, style: style)
     }
     
-    func cancelAttachmentLoading(markMediaStatusCancelled: Bool) {
-        let jobId: String
-        if messageIsSentByMe {
-            jobId = AudioUploadJob.jobId(messageId: message.messageId)
-        } else {
-            jobId = AudioDownloadJob.jobId(messageId: message.messageId)
+    func beginAttachmentLoading(isTriggeredByUser: Bool) {
+        downloadIsTriggeredByUser = isTriggeredByUser
+        defer {
+            updateOperationButtonStyle()
         }
-        ConcurrentJobQueue.shared.cancelJob(jobId: jobId)
-        if markMediaStatusCancelled {
-            MessageDAO.shared.updateMediaStatus(messageId: message.messageId, status: .CANCELED, conversationId: message.conversationId)
+        guard shouldBeginAttachmentLoading(isTriggeredByUser: isTriggeredByUser) else {
+            return
+        }
+        updateMediaStatus(message: message, status: .PENDING)
+        let message = Message.createMessage(message: self.message)
+        if shouldUpload {
+            if transcriptId != nil {
+                assertionFailure()
+            } else {
+                let job = AudioUploadJob(message: message)
+                UploaderQueue.shared.addJob(job: job)
+            }
+        } else {
+            let job = AttachmentDownloadJob(transcriptId: transcriptId, messageId: message.messageId)
+            ConcurrentJobQueue.shared.addJob(job: job)
+        }
+        isLoading = true
+    }
+    
+    func cancelAttachmentLoading(isTriggeredByUser: Bool) {
+        guard mediaStatus == MediaStatus.PENDING.rawValue else {
+            return
+        }
+        guard isTriggeredByUser || !downloadIsTriggeredByUser else {
+            return
+        }
+        if shouldUpload {
+            if transcriptId != nil {
+                assertionFailure()
+            } else {
+                let id = AudioUploadJob.jobId(messageId: message.messageId)
+                UploaderQueue.shared.cancelJob(jobId: id)
+            }
+        } else {
+            let id = AttachmentDownloadJob.jobId(transcriptId: transcriptId, messageId: message.messageId)
+            ConcurrentJobQueue.shared.cancelJob(jobId: id)
+        }
+        if isTriggeredByUser {
+            updateMediaStatus(message: message, status: .CANCELED)
         }
     }
     

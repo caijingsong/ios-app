@@ -1,0 +1,354 @@
+import UIKit
+import OrderedCollections
+import Alamofire
+import MixinServices
+
+final class TradeMixinSpotViewController: TradeSpotViewController {
+    
+    override var sendTokenPrecision: Int {
+        Int(MixinToken.internalPrecision)
+    }
+    
+    override var orderWalletID: String {
+        myUserId
+    }
+    
+    private let referral: String?
+    
+    private weak var depositTokenRequest: Request?
+    
+    private var trendingRequester: MarketPeriodicRequester?
+    private var stocksRequester: MarketPeriodicRequester?
+    private var topGainersRequester: MarketPeriodicRequester?
+    private var topLosersRequester: MarketPeriodicRequester?
+    
+    init(
+        mode: Mode,
+        sendAssetID: String?,
+        sendAmount: Decimal?,
+        receiveAssetID: String?,
+        referral: String?,
+        focusOnInput: Bool,
+    ) {
+        self.referral = referral
+        super.init(
+            mode: mode,
+            tokenSource: .mixin,
+            sendAssetID: sendAssetID,
+            sendAmount: sendAmount,
+            receiveAssetID: receiveAssetID,
+            focusOnInput: focusOnInput,
+        )
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("Storyboard not supported")
+    }
+    
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        var tags = ["wallet": "main", "type": mode.rawValue]
+        tags["source"] = UserOperationAnalytics.tradeSource?.rawValue
+        reporter.report(event: .tradeSpotStart, tags: tags)
+    }
+    
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        
+        switch mode {
+        case .simple:
+            let trendingRequester = MarketPeriodicRequester(category: .trending)
+            self.trendingRequester = trendingRequester
+            trendingRequester.delegate = self
+            trendingRequester.start()
+            
+            let stocksRequester = MarketPeriodicRequester(category: .stocks)
+            self.stocksRequester = stocksRequester
+            stocksRequester.delegate = self
+            stocksRequester.start()
+            
+            let topGainersRequester = MarketPeriodicRequester(category: .topGainers)
+            self.topGainersRequester = topGainersRequester
+            topGainersRequester.delegate = self
+            topGainersRequester.start()
+            
+            let topLosersRequester = MarketPeriodicRequester(category: .topLosers)
+            self.topLosersRequester = topLosersRequester
+            topLosersRequester.delegate = self
+            topLosersRequester.start()
+        case .advanced:
+            break
+        }
+    }
+    
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        trendingRequester?.pause()
+        stocksRequester?.pause()
+        topGainersRequester?.pause()
+        topLosersRequester?.pause()
+    }
+    
+    override func changeSendToken(_ sender: Any) {
+        let selector = TradeMixinTokenSelectorViewController(
+            intent: .send,
+            selectedAssetID: sendToken?.assetID,
+            defaultTokens: Array(swappableTokens.values),
+            stockTokens: stockTokens,
+        )
+        selector.onSelected = { token in
+            if token.assetID == self.receiveToken?.assetID {
+                self.swapSendingReceiving()
+            } else {
+                self.setSendToken(token)
+            }
+        }
+        present(selector, animated: true)
+    }
+    
+    override func depositSendToken(_ sender: Any) {
+        guard let sendToken else {
+            return
+        }
+        let dataSource = MixinDepositDataSource(
+            assetID: sendToken.assetID,
+            symbol: sendToken.symbol
+        )
+        let deposit = DepositViewController(
+            dataSource: dataSource,
+            switchingBetweenNetworks: true
+        )
+        navigationController?.pushViewController(deposit, animated: true)
+    }
+    
+    override func changeReceiveToken(_ sender: Any) {
+        let selector = TradeMixinTokenSelectorViewController(
+            intent: .receive,
+            selectedAssetID: receiveToken?.assetID,
+            defaultTokens: Array(swappableTokens.values),
+            stockTokens: stockTokens,
+        )
+        selector.onSelected = { token in
+            if token.assetID == self.sendToken?.assetID {
+                self.swapSendingReceiving()
+            } else {
+                self.setReceiveToken(token)
+            }
+        }
+        present(selector, animated: true)
+    }
+    
+    override func review(_ sender: RoundedButton) {
+        view.endEditing(false)
+        let job = AddBotIfNotFriendJob(userID: BotUserID.mixinRoute)
+        ConcurrentJobQueue.shared.addJob(job: job)
+        switch mode {
+        case .simple:
+            reviewSimpleOrder(reviewButton: sender)
+        case .advanced:
+            reviewAdvancedOrder(reviewButton: sender)
+        }
+    }
+    
+    override func setSendToken(_ sendToken: BalancedSwapToken?) {
+        super.setSendToken(sendToken)
+        depositTokenRequest?.cancel()
+    }
+    
+    override func balancedSwapToken(assetID: String) -> BalancedSwapToken? {
+        if let item = TokenDAO.shared.tokenItem(assetID: assetID), let token = BalancedSwapToken(tokenItem: item) {
+            return token
+        } else if case let .success(token) = SafeAPI.assets(id: assetID), let chain = ChainDAO.shared.chain(chainId: token.chainID) {
+            let item = MixinTokenItem(token: token, balance: "0", isHidden: false, chain: chain)
+            return BalancedSwapToken(tokenItem: item)
+        } else {
+            return nil
+        }
+    }
+    
+    override func balancedSwapTokens(
+        from swappableTokens: [SwapToken]
+    ) -> OrderedDictionary<String, BalancedSwapToken> {
+        let ids = swappableTokens.map(\.assetID)
+        let availableTokens = TokenDAO.shared.tokenItems(with: ids)
+            .reduce(into: [:]) { result, item in
+                result[item.assetID] = item
+            }
+        let prices = MarketDAO.shared.currentPrices(assetIDs: ids)
+        return swappableTokens.reduce(into: OrderedDictionary()) { result, token in
+            let marketPrice: Decimal? = if let value = prices[token.assetID] {
+                Decimal(string: value, locale: .enUSPOSIX)
+            } else {
+                nil
+            }
+            result[token.assetID] = if let item = availableTokens[token.assetID] {
+                BalancedSwapToken(
+                    token: token,
+                    balance: item.decimalBalance,
+                    usdPrice: marketPrice ?? item.decimalUSDPrice,
+                    isMalicious: false,
+                )
+            } else {
+                BalancedSwapToken(
+                    token: token,
+                    balance: 0,
+                    usdPrice: 0,
+                    isMalicious: false,
+                )
+            }
+        }
+    }
+    
+    override func inputSendAmount(multiplier: Decimal) {
+        guard let sendToken else {
+            return
+        }
+        let amount = withUnsafePointer(
+            to: sendToken.decimalBalance * multiplier
+        ) { amount in
+            var rounded: Decimal = 0
+            NSDecimalRound(&rounded, amount, Int(MixinToken.internalPrecision), .down)
+            return rounded
+        }
+        if amount >= MixinToken.minimalAmount {
+            pricingModel.sendAmount = amount
+            amountInputCell?.updateSendAmountTextField(amount: amount)
+            startQuoteRequesterIfAvailable()
+            reloadSections()
+        }
+    }
+    
+    private func reviewSimpleOrder(reviewButton: RoundedButton) {
+        guard let quote else {
+            return
+        }
+        reviewButton.isBusy = true
+        let request = SwapRequest(
+            walletId: nil,
+            sendToken: quote.sendToken,
+            sendAmount: quote.sendAmount,
+            receiveToken: quote.receiveToken,
+            source: .mixin,
+            slippage: 0.01,
+            payload: quote.payload,
+            withdrawalDestination: nil,
+            referral: referral
+        )
+        RouteAPI.swap(request: request) { [weak self] response in
+            guard self != nil else {
+                return
+            }
+            switch response {
+            case .success(let response):
+                guard
+                    let tx = response.tx,
+                    let url = URL(string: tx),
+                    quote.sendToken.assetID == response.quote.inputMint,
+                    quote.receiveToken.assetID == response.quote.outputMint,
+                    let sendAmount = Decimal(string: response.quote.inAmount, locale: .enUSPOSIX),
+                    let receiveAmount = Decimal(string: response.quote.outAmount, locale: .enUSPOSIX)
+                else {
+                    showAutoHiddenHud(style: .error, text: R.string.localizable.invalid_payment_link())
+                    reviewButton.isBusy = false
+                    return
+                }
+                let context = Payment.TradeContext(
+                    mode: .simple,
+                    sendToken: quote.sendToken,
+                    sendAmount: sendAmount,
+                    receiveToken: quote.receiveToken,
+                    receiveAmount: receiveAmount
+                )
+                let source: UrlWindow.Source = .swap(context: context) { description in
+                    if let description {
+                        showAutoHiddenHud(style: .error, text: description)
+                    }
+                    reviewButton.isBusy = false
+                }
+                _ = UrlWindow.checkUrl(url: url, from: source)
+            case .failure(let error):
+                showAutoHiddenHud(style: .error, text: error.localizedDescription)
+                reviewButton.isBusy = false
+            }
+        }
+        reporter.report(event: .tradeSpotPreview)
+    }
+    
+    private func reviewAdvancedOrder(reviewButton: RoundedButton) {
+        guard
+            let sendToken,
+            let sendAmount = pricingModel.sendAmount,
+            let receiveToken,
+            let receiveAmount = pricingModel.receiveAmount
+        else {
+            return
+        }
+        reviewButton.isBusy = true
+        let request = MixinLimitOrderRequest(
+            walletID: myUserId,
+            assetID: sendToken.assetID,
+            amount: sendAmount,
+            receiveAssetID: receiveToken.assetID,
+            expectedReceiveAmount: receiveAmount,
+            expireAt: selectedExpiry.date
+        )
+        RouteAPI.createLimitOrder(request: request) { [selectedExpiry] result in
+            switch result {
+            case let .success(response):
+                guard let url = URL(string: response.tx) else {
+                    showAutoHiddenHud(style: .error, text: R.string.localizable.invalid_payment_link())
+                    reviewButton.isBusy = false
+                    return
+                }
+                let context = Payment.TradeContext(
+                    mode: .advanced(selectedExpiry),
+                    sendToken: sendToken,
+                    sendAmount: sendAmount,
+                    receiveToken: receiveToken,
+                    receiveAmount: receiveAmount
+                )
+                let source: UrlWindow.Source = .swap(context: context) { description in
+                    if let description {
+                        showAutoHiddenHud(style: .error, text: description)
+                    }
+                    reviewButton.isBusy = false
+                }
+                _ = UrlWindow.checkUrl(url: url, from: source)
+            case let .failure(error):
+                showAutoHiddenHud(style: .error, text: error.localizedDescription)
+                reviewButton.isBusy = false
+            }
+        }
+        reporter.report(event: .tradeSpotPreview)
+    }
+    
+}
+
+extension TradeMixinSpotViewController: PendingTradeOrderLoader.Delegate {
+    
+    func pendingSwapOrder(_ loader: PendingTradeOrderLoader, didLoad orders: [TradeOrder]) {
+        switch mode {
+        case .simple:
+            DispatchQueue.main.async {
+                self.tradeViewController?.updateOrdersButton()
+            }
+        case .advanced:
+            let tokens = Web3OrderDAO.shared.tradeOrderTokens(orders: orders)
+            let viewModels = orders.map { order in
+                TradeOrderViewModel(
+                    order: order,
+                    wallet: .privacy,
+                    payToken: tokens[order.payAssetID],
+                    receiveToken: tokens[order.receiveAssetID]
+                )
+            }.sorted { one, another in
+                one.createdAt > another.createdAt
+            }
+            DispatchQueue.main.async {
+                self.reload(openOrders: viewModels)
+                self.tradeViewController?.updateOrdersButton()
+            }
+        }
+    }
+    
+}

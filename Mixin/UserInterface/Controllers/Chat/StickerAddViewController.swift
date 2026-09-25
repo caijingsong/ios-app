@@ -1,170 +1,180 @@
+import CoreServices
 import UIKit
-import YYImage
-import Photos
 import SDWebImage
+import MixinServices
 
-class StickerAddViewController: UIViewController {
-
-    @IBOutlet weak var stickerImageView: YYAnimatedImageView!
-
-    private var message: MessageItem?
-    private var asset: PHAsset?
-    private var animateURL: URL?
-
+final class StickerAddViewController: UIViewController {
+    
+    enum Source {
+        case message(MessageItem)
+        case image(UIImage)
+    }
+    
+    @IBOutlet weak var previewImageView: SDAnimatedImageView!
+    
+    private let source: Source
+    private let minStickerLength: CGFloat = 128
+    private let maxStickerLength: CGFloat = 1024
+    private let minDataCount = bytesPerKiloByte
+    private let maxDataCount = bytesPerMegaByte
+    
+    private var uploadPNGData = false
+    
+    private weak var rightBarButton: BusyButton?
+    
+    init(source: Source) {
+        self.source = source
+        let nib = R.nib.stickerAddView
+        super.init(nibName: nib.name, bundle: nib.bundle)
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("Storyboard not supported")
+    }
+    
     override func viewDidLoad() {
         super.viewDidLoad()
-
-        if let assetUrl = message?.assetUrl {
-            stickerImageView.sd_setImage(with: URL(string: assetUrl))
-        } else if let mediaUrl = message?.mediaUrl {
-            let url = MixinFile.url(ofChatDirectory: .photos, filename: mediaUrl)
-            if mediaUrl.hasSuffix(".webp") || mediaUrl.hasSuffix(".gif") {
-                animateURL = url
+        title = R.string.localizable.add_sticker()
+        navigationItem.rightBarButtonItem = .busyButton(
+            title: R.string.localizable.save(),
+            target: self,
+            action: #selector(save(_:))
+        )
+        rightBarButton = navigationItem.rightBarButtonItem?.customView as? BusyButton
+        switch source {
+        case .message(let item):
+            uploadPNGData = item.mediaMimeType == "image/png"
+            let updateRightButton: SDExternalCompletionBlock = { [weak self] (image, error, _, _) in
+                self?.rightBarButton?.isEnabled = image != nil
             }
-            stickerImageView.sd_setImage(with: url)
-        } else if let asset = self.asset {
-            if let filename = PHAssetResource.assetResources(for: asset).first?.originalFilename.lowercased(), let startIndex = filename.index(of: "."), startIndex < filename.endIndex {
-                let fileExtension = String(filename[startIndex..<filename.endIndex])
-                if fileExtension.hasSuffix(".webp") || fileExtension.hasSuffix(".gif") {
-                    PHImageManager.default().requestImageData(for: asset, options: nil, resultHandler: { [weak self](data, _, _, _) in
-                        let filename = "\(UUID().uuidString.lowercased())\(fileExtension)"
-                        let tempUrl = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(filename)
-                        do {
-                            try data?.write(to: tempUrl)
-                            self?.animateURL = tempUrl
-                            self?.stickerImageView.sd_setImage(with: tempUrl)
-                        } catch {
-                            self?.requestAssetImage(asset: asset)
-                        }
-                    })
-                    return
-                }
+            if let assetUrl = item.assetUrl {
+                let context = [SDWebImageContextOption.animatedImageClass: SDAnimatedImage.self]
+                previewImageView.sd_setImage(with: URL(string: assetUrl),
+                                             placeholderImage: nil,
+                                             context: context,
+                                             progress: nil,
+                                             completed: updateRightButton)
+            } else if let mediaUrl = item.mediaUrl {
+                let url = AttachmentContainer.url(for: .photos, filename: mediaUrl)
+                previewImageView.sd_setImage(with: url,
+                                             placeholderImage: nil,
+                                             context: localImageContext,
+                                             progress: nil,
+                                             completed: updateRightButton)
+            } else {
+                // container's right button will keep disabled if no image is loaded
             }
-            requestAssetImage(asset: asset)
+        case .image(let image):
+            uploadPNGData = false
+            previewImageView.image = image
+            rightBarButton?.isEnabled = true
         }
     }
-
-    private func requestAssetImage(asset: PHAsset) {
-        let requestOptions = PHImageRequestOptions()
-        requestOptions.version = .current
-        requestOptions.isSynchronous = true
-        requestOptions.deliveryMode = .fastFormat
-        requestOptions.isNetworkAccessAllowed = true
-        PHImageManager.default().requestImage(for: asset, targetSize: PHImageManagerMaximumSize, contentMode: .default, options: requestOptions, resultHandler: { [weak self](image, _) in
-            self?.stickerImageView.image = image
-        })
-    }
-
-    class func instance(message: MessageItem) -> UIViewController {
-        let vc = Storyboard.chat.instantiateViewController(withIdentifier: "sticker_add") as! StickerAddViewController
-        vc.message = message
-        return ContainerViewController.instance(viewController: vc, title: Localized.STICKER_ADD_TITLE)
-    }
-
-    class func instance(asset: PHAsset) -> UIViewController {
-        let vc = Storyboard.chat.instantiateViewController(withIdentifier: "sticker_add") as! StickerAddViewController
-        vc.asset = asset
-        return ContainerViewController.instance(viewController: vc, title: Localized.STICKER_ADD_TITLE)
-    }
-
-}
-
-extension StickerAddViewController: ContainerViewControllerDelegate {
-
-    func prepareBar(rightButton: StateResponsiveButton) {
-        rightButton.isEnabled = true
-        rightButton.setTitleColor(.systemTint, for: .normal)
-    }
-
-    func barRightButtonTappedAction() {
-        guard let rightButton = container?.rightButton, !rightButton.isBusy, let image = stickerImageView.image else {
+    
+    @objc private func save(_ sender: BusyButton) {
+        guard let rightButton = rightBarButton, !rightButton.isBusy else {
+            return
+        }
+        guard let image = previewImageView.image else {
+            showFailureAlert()
+            assertionFailure("This is not expected to happen since right button should be disabled before any image is presented")
             return
         }
         rightButton.isBusy = true
-
-        let alertBlock = { [weak self] in
-            DispatchQueue.main.async {
-                self?.container?.rightButton.isBusy = false
-                self?.alert(Localized.STICKER_ADD_REQUIRED)
-            }
-        }
-
-        let failedBlock = { [weak self] in
-            DispatchQueue.main.async {
-                self?.container?.rightButton.isBusy = false
-                NotificationCenter.default.postOnMain(name: .ErrorMessageDidAppear, object: Localized.STICKER_ADD_FAILED)
-            }
-        }
-
-        let addBloack = { (stickerBase64: String) in
-            StickerAPI.shared.addSticker(stickerBase64: stickerBase64, completion: { [weak self](result) in
-                switch result {
-                case let .success(sticker):
-                    if let data = Data(base64Encoded: stickerBase64), let image = UIImage(data: data) {
-                        SDWebImageManager.shared.imageCache.store(image, imageData: data, forKey: sticker.assetUrl, cacheType: .disk, completion: nil)
-                    }
-                    DispatchQueue.global().async {
-                        StickerDAO.shared.insertOrUpdateFavoriteSticker(sticker: sticker)
-                        DispatchQueue.main.async {
-                            NotificationCenter.default.postOnMain(name: .ToastMessageDidAppear, object: Localized.TOAST_ADDED)
-                            self?.navigationController?.popViewController(animated: true)
-                        }
-                    }
-                case .failure:
-                    failedBlock()
-                }
-            })
-        }
-
-        DispatchQueue.global().async { [weak self] in
-            if let assetUrl = self?.animateURL, !FileManager.default.isStillImage(assetUrl.path) {
-                guard FileManager.default.validateSticker(assetUrl.path) else {
-                    alertBlock()
-                    return
-                }
-                let fileExtension = assetUrl.pathExtension.lowercased()
-                let filename = "\(UUID().uuidString.lowercased()).\(fileExtension)"
-                let targetUrl = MixinFile.url(ofChatDirectory: .photos, filename: filename)
-                do {
-                    try FileManager.default.copyItem(at: assetUrl, to: targetUrl)
-                    if let stickerBase64 = FileManager.default.contents(atPath: targetUrl.path)?.base64EncodedString() {
-                        addBloack(stickerBase64)
-                    } else {
-                        failedBlock()
-                    }
-                } catch {
-                    failedBlock()
-                }
+        if let image = previewImageView.image as? SDAnimatedImage, image.animatedImageFrameCount > 1, let data = image.animatedImageData {
+            let isSizeValid = min(image.size.width, image.size.height) >= minStickerLength
+                && max(image.size.width, image.size.height) <= maxStickerLength
+            if isSizeValid {
+                performAddition(data: data)
             } else {
-                let filename = "\(UUID().uuidString.lowercased()).\(ExtensionName.jpeg)"
-                let targetUrl = MixinFile.url(ofChatDirectory: .photos, filename: filename)
-                let targetPhoto = image.scaledToSticker()
-                if targetPhoto.saveToFile(path: targetUrl), let stickerBase64 = targetPhoto.base64, FileManager.default.validateSticker(targetUrl.path) {
-                    addBloack(stickerBase64)
+                showMalformedAlert()
+            }
+        } else {
+            let ratio = image.size.width / image.size.height
+            let isRatioValid = ratio >= minStickerLength / maxStickerLength
+                && ratio <= maxStickerLength / minStickerLength
+            if isRatioValid {
+                addStaticImage(image: image)
+            } else {
+                showMalformedAlert()
+            }
+        }
+    }
+    
+}
+
+extension StickerAddViewController {
+    
+    private func showMalformedAlert() {
+        rightBarButton?.isBusy = false
+        let title = R.string.localizable.sticker_add_requirements("\(minDataCount / bytesPerKiloByte)", "\(maxDataCount / bytesPerKiloByte)", "\(Int(minStickerLength))", "\(Int(maxStickerLength))")
+        let alert = UIAlertController(title: title, message: nil, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: R.string.localizable.ok(), style: .default, handler: nil))
+        present(alert, animated: true, completion: nil)
+    }
+    
+    private func showFailureAlert() {
+        rightBarButton?.isBusy = false
+        showAutoHiddenHud(style: .error, text: R.string.localizable.operation_failed())
+    }
+    
+    private func addStaticImage(image: UIImage) {
+        let scalingSize: CGSize?
+        if min(image.size.width, image.size.height) < minStickerLength {
+            let canvasSize = CGSize(width: minStickerLength, height: minStickerLength)
+            scalingSize = image.size.sizeThatFills(canvasSize)
+        } else if max(image.size.width, image.size.height) > maxStickerLength {
+            let canvasSize = CGSize(width: maxStickerLength, height: maxStickerLength)
+            scalingSize = image.size.sizeThatFits(canvasSize)
+        } else {
+            scalingSize = nil
+        }
+        let uploadPNGData = self.uploadPNGData
+        DispatchQueue.global().async { [weak self] in
+            let scaled: UIImage?
+            if let size = scalingSize {
+                scaled = image.imageByScaling(to: size)
+            } else {
+                scaled = image
+            }
+            let data: Data?
+            if uploadPNGData {
+                data = scaled?.pngData()
+            } else {
+                data = scaled?.jpegData(compressionQuality: JPEGCompressionQuality.medium)
+            }
+            DispatchQueue.main.async {
+                if let data = data {
+                    self?.performAddition(data: data)
                 } else {
-                    alertBlock()
+                    self?.showFailureAlert()
                 }
             }
         }
     }
-
-    func textBarRightButton() -> String? {
-        return Localized.ACTION_SAVE
-    }
-
-}
-
-private extension FileManager {
-
-
-    func validateSticker(_ path: String) -> Bool {
-        let fSize = fileSize(path)
-        guard fSize > 1024 && fSize < 1024 * 800 else {
-            return false
+    
+    private func performAddition(data: Data) {
+        guard data.count <= maxDataCount && data.count >= minDataCount else {
+            showMalformedAlert()
+            return
         }
-        let size = imageSize(path)
-        return min(size.width, size.height) >= 64.0 && max(size.width, size.height) <= 512
+        let image = data.base64RawURLEncodedString()
+        StickerAPI.addSticker(base64EncodedImage: image) { [weak self] (result) in
+            switch result {
+            case let .success(sticker):
+                SDImageCache.persistentSticker.storeImageData(toDisk: data, forKey: sticker.assetUrl)
+                DispatchQueue.global().async { [weak self] in
+                    StickerDAO.shared.insertOrUpdateFavoriteSticker(sticker: sticker)
+                    DispatchQueue.main.async {
+                        showAutoHiddenHud(style: .notification, text: R.string.localizable.added())
+                        self?.navigationController?.popViewController(animated: true)
+                    }
+                }
+            case let .failure(error):
+                self?.rightBarButton?.isBusy = false
+                showAutoHiddenHud(style: .error, text: error.localizedDescription)
+            }
+        }
     }
-
+    
 }
-

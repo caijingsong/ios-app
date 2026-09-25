@@ -2,7 +2,12 @@ import UIKit
 
 class Link {
     
-    static let detector = MXNFastURLDetector()
+    struct Range {
+        let range: NSRange
+        let url: URL
+    }
+    
+    static let detector = FastURLDetector()
     
     let hitFrame: CGRect
     let backgroundPath: UIBezierPath

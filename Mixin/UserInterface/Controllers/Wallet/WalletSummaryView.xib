@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.XIB" version="3.0" toolsVersion="24506" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES">
+    <device id="retina6_12" orientation="portrait" appearance="light"/>
+    <dependencies>
+        <deployment identifier="iOS"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="24504"/>
+        <capability name="Named colors" minToolsVersion="9.0"/>
+        <capability name="Safe area layout guides" minToolsVersion="9.0"/>
+        <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
+    </dependencies>
+    <objects>
+        <placeholder placeholderIdentifier="IBFilesOwner" id="-1" userLabel="File's Owner" customClass="WalletSummaryViewController" customModule="Mixin" customModuleProvider="target">
+            <connections>
+                <outlet property="addWalletView" destination="RTR-DM-mcJ" id="Ghn-hm-v7M"/>
+                <outlet property="categorySelectorCollectionView" destination="tr6-VV-3oq" id="gHI-pn-CLP"/>
+                <outlet property="categorySelectorHeightConstraint" destination="q2f-xg-AFe" id="DX9-9g-Dzb"/>
+                <outlet property="categorySelectorLayout" destination="PMB-gi-9AE" id="0c8-jA-SEz"/>
+                <outlet property="view" destination="i5M-Pr-FkT" id="sfx-zR-JGt"/>
+            </connections>
+        </placeholder>
+        <placeholder placeholderIdentifier="IBFirstResponder" id="-2" customClass="UIResponder"/>
+        <view clearsContextBeforeDrawing="NO" contentMode="scaleToFill" id="i5M-Pr-FkT">
+            <rect key="frame" x="0.0" y="0.0" width="393" height="852"/>
+            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+            <subviews>
+                <view contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="N3G-DI-chj">
+                    <rect key="frame" x="0.0" y="118" width="393" height="44"/>
+                    <subviews>
+                        <label opaque="NO" userInteractionEnabled="NO" contentMode="left" verticalHuggingPriority="251" horizontalCompressionResistancePriority="250" text="Wallets" textAlignment="natural" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="Jn5-Sr-Ev6">
+                            <rect key="frame" x="19.999999999999996" y="0.0" width="61.666666666666657" height="44"/>
+                            <fontDescription key="fontDescription" type="system" weight="semibold" pointSize="18"/>
+                            <color key="textColor" name="text"/>
+                            <nil key="highlightedColor"/>
+                            <userDefinedRuntimeAttributes>
+                                <userDefinedRuntimeAttribute type="string" keyPath="dynamicTextSize" value="semibold18"/>
+                                <userDefinedRuntimeAttribute type="string" keyPath="local_title" value="wallets"/>
+                            </userDefinedRuntimeAttributes>
+                        </label>
+                        <view opaque="NO" contentMode="scaleToFill" horizontalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="RTR-DM-mcJ" customClass="BadgeBarButtonView" customModule="Mixin" customModuleProvider="target">
+                            <rect key="frame" x="339" y="0.0" width="44" height="44"/>
+                            <color key="tintColor" name="icon_tint"/>
+                            <constraints>
+                                <constraint firstAttribute="width" constant="44" id="hrU-Oy-OAs"/>
+                            </constraints>
+                        </view>
+                    </subviews>
+                    <color key="backgroundColor" name="background_secondary"/>
+                    <constraints>
+                        <constraint firstAttribute="bottom" secondItem="RTR-DM-mcJ" secondAttribute="bottom" id="4hO-zh-MtI"/>
+                        <constraint firstAttribute="height" constant="44" id="5OF-FB-BD2"/>
+                        <constraint firstAttribute="trailing" secondItem="RTR-DM-mcJ" secondAttribute="trailing" constant="10" id="8Kq-YS-Xxr"/>
+                        <constraint firstItem="Jn5-Sr-Ev6" firstAttribute="leading" secondItem="N3G-DI-chj" secondAttribute="leading" constant="20" id="Oks-Ly-YPm"/>
+                        <constraint firstItem="Jn5-Sr-Ev6" firstAttribute="top" secondItem="N3G-DI-chj" secondAttribute="top" id="Yfi-ah-tEQ"/>
+                        <constraint firstItem="RTR-DM-mcJ" firstAttribute="top" secondItem="N3G-DI-chj" secondAttribute="top" id="hQg-fw-SfN"/>
+                        <constraint firstAttribute="bottom" secondItem="Jn5-Sr-Ev6" secondAttribute="bottom" id="p6E-IM-4gc"/>
+                        <constraint firstItem="RTR-DM-mcJ" firstAttribute="leading" relation="greaterThanOrEqual" secondItem="Jn5-Sr-Ev6" secondAttribute="trailing" id="yBF-NN-oYh"/>
+                    </constraints>
+                </view>
+                <collectionView clipsSubviews="YES" multipleTouchEnabled="YES" contentMode="scaleToFill" alwaysBounceHorizontal="YES" showsHorizontalScrollIndicator="NO" showsVerticalScrollIndicator="NO" bouncesZoom="NO" dataMode="none" translatesAutoresizingMaskIntoConstraints="NO" id="tr6-VV-3oq">
+                    <rect key="frame" x="0.0" y="162" width="393" height="58"/>
+                    <color key="backgroundColor" name="background_secondary"/>
+                    <constraints>
+                        <constraint firstAttribute="height" constant="58" id="q2f-xg-AFe"/>
+                    </constraints>
+                    <collectionViewFlowLayout key="collectionViewLayout" scrollDirection="horizontal" minimumLineSpacing="0.0" minimumInteritemSpacing="0.0" id="PMB-gi-9AE">
+                        <size key="itemSize" width="128" height="128"/>
+                        <size key="estimatedItemSize" width="100" height="38"/>
+                        <size key="headerReferenceSize" width="0.0" height="0.0"/>
+                        <size key="footerReferenceSize" width="0.0" height="0.0"/>
+                        <inset key="sectionInset" minX="15" minY="10" maxX="15" maxY="10"/>
+                    </collectionViewFlowLayout>
+                </collectionView>
+            </subviews>
+            <viewLayoutGuide key="safeArea" id="fnl-2z-Ty3"/>
+            <color key="backgroundColor" name="background_secondary"/>
+            <constraints>
+                <constraint firstItem="N3G-DI-chj" firstAttribute="leading" secondItem="fnl-2z-Ty3" secondAttribute="leading" id="8eQ-Ll-nKq"/>
+                <constraint firstAttribute="trailing" secondItem="N3G-DI-chj" secondAttribute="trailing" id="K4Q-A8-aMt"/>
+                <constraint firstItem="fnl-2z-Ty3" firstAttribute="trailing" secondItem="tr6-VV-3oq" secondAttribute="trailing" id="MVe-Ug-eAD"/>
+                <constraint firstItem="tr6-VV-3oq" firstAttribute="top" secondItem="N3G-DI-chj" secondAttribute="bottom" id="Zxk-X4-EtD"/>
+                <constraint firstItem="tr6-VV-3oq" firstAttribute="leading" secondItem="fnl-2z-Ty3" secondAttribute="leading" id="m35-Om-1q8"/>
+                <constraint firstItem="N3G-DI-chj" firstAttribute="top" secondItem="fnl-2z-Ty3" secondAttribute="top" id="uhg-H0-adW"/>
+            </constraints>
+            <point key="canvasLocation" x="49.618320610687022" y="41.549295774647888"/>
+        </view>
+    </objects>
+    <resources>
+        <namedColor name="background_secondary">
+            <color red="0.96470588235294119" green="0.96862745098039216" blue="0.98039215686274506" alpha="1" colorSpace="custom" customColorSpace="displayP3"/>
+        </namedColor>
+        <namedColor name="icon_tint">
+            <color red="0.18431372549019609" green="0.18823529411764706" blue="0.19607843137254902" alpha="1" colorSpace="custom" customColorSpace="displayP3"/>
+        </namedColor>
+        <namedColor name="text">
+            <color red="0.0" green="0.0" blue="0.0" alpha="1" colorSpace="custom" customColorSpace="displayP3"/>
+        </namedColor>
+    </resources>
+</document>

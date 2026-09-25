@@ -1,0 +1,99 @@
+import UIKit
+import MixinServices
+
+final class PerpetualPositionHeaderCell: UICollectionViewCell {
+    
+    protocol Delegate: AnyObject {
+        func perpetualPositionHeaderCellRequestToViewMarket(_ cell: PerpetualPositionHeaderCell)
+    }
+    
+    @IBOutlet weak var iconView: PlainTokenIconView!
+    @IBOutlet weak var titleStackView: UIStackView!
+    @IBOutlet weak var titleLabel: UILabel!
+    @IBOutlet weak var symbolLabel: InsetLabel!
+    @IBOutlet weak var directionLabel: InsetLabel!
+    @IBOutlet weak var actionView: PillActionView!
+    
+    weak var delegate: Delegate?
+    
+    override func awakeFromNib() {
+        super.awakeFromNib()
+        contentView.layer.cornerRadius = 8
+        contentView.layer.masksToBounds = true
+        titleLabel.font = .condensed(size: 34)
+        symbolLabel.contentInset = UIEdgeInsets(top: 0, left: 0, bottom: 6, right: 0)
+        directionLabel.contentInset = UIEdgeInsets(top: 3, left: 8, bottom: 3, right: 8)
+        directionLabel.layer.cornerRadius = 4
+        directionLabel.layer.masksToBounds = true
+    }
+    
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        iconView.prepareForReuse()
+    }
+    
+    @IBAction func viewMarket(_ sender: Any) {
+        delegate?.perpetualPositionHeaderCellRequestToViewMarket(self)
+    }
+    
+    func load(viewModel: PerpetualOrderViewModel) {
+        iconView.setIcon(tokenIconURL: viewModel.iconURL)
+        switch viewModel.type {
+        case .open, .close:
+            titleLabel.textColor = R.color.text()
+            titleLabel.text = viewModel.quantity
+            symbolLabel.text = viewModel.tokenSymbol
+            symbolLabel.isHidden = false
+        case .increasePosition:
+            titleLabel.text = CurrencyFormatter.localizedString(
+                from: viewModel.absoluteDecimalQuantity,
+                format: .precision,
+                sign: .always
+            )
+            titleLabel.textColor = R.color.market_green()
+        case .increaseMargin:
+            titleLabel.text = abs(viewModel.decimalPayAmount).formatted(
+                PerpetualOrderViewModel.editPositionPayAmountStyle
+                    .sign(strategy: .always())
+            )
+            titleLabel.textColor = R.color.market_green()
+            symbolLabel.isHidden = true
+        case .decreaseMargin:
+            titleLabel.text = (-abs(viewModel.decimalPayAmount)).formatted(
+                PerpetualOrderViewModel.editPositionPayAmountStyle
+                    .sign(strategy: .always())
+            )
+            titleLabel.textColor = R.color.market_red()
+            symbolLabel.isHidden = true
+        }
+        switch viewModel.status {
+        case .normal:
+            switch viewModel.side {
+            case .long:
+                let color = MarketColor.rising.uiColor
+                directionLabel.backgroundColor = color.withAlphaComponent(0.2)
+                directionLabel.textColor = color
+            case .short:
+                let color = MarketColor.falling.uiColor
+                directionLabel.backgroundColor = color.withAlphaComponent(0.2)
+                directionLabel.textColor = color
+            }
+        case .rejected:
+            directionLabel.backgroundColor = R.color.background_quaternary()
+            directionLabel.textColor = R.color.text_tertiary()
+        }
+        directionLabel.text = switch viewModel.side {
+        case .long:
+            R.string.localizable.long_asset(viewModel.leverage)
+        case .short:
+            R.string.localizable.short_asset(viewModel.leverage)
+        }
+        if viewModel.actions.isEmpty {
+            actionView.isHidden = true
+        } else {
+            actionView.actions = viewModel.actions.map { $0.asPillAction() }
+            actionView.isHidden = false
+        }
+    }
+    
+}

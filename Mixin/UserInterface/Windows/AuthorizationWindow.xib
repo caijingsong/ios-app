@@ -1,0 +1,214 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.XIB" version="3.0" toolsVersion="23727" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES">
+    <device id="retina6_1" orientation="portrait" appearance="dark"/>
+    <dependencies>
+        <deployment identifier="iOS"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="23721"/>
+        <capability name="Named colors" minToolsVersion="9.0"/>
+        <capability name="Safe area layout guides" minToolsVersion="9.0"/>
+        <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
+    </dependencies>
+    <objects>
+        <placeholder placeholderIdentifier="IBFilesOwner" id="-1" userLabel="File's Owner" customClass="AuthorizationWindow" customModule="Mixin" customModuleProvider="target">
+            <connections>
+                <outlet property="appNumberLabel" destination="ja9-m3-UeY" id="cOq-as-mzC"/>
+                <outlet property="avatarImageView" destination="HXw-Nw-vNO" id="Ef1-lj-Jcs"/>
+                <outlet property="avatarWidthConstraint" destination="F6W-Qj-eAr" id="Pda-5K-Wta"/>
+                <outlet property="nameLabel" destination="a1w-fq-L4p" id="P0R-O6-s1Z"/>
+                <outlet property="scopeConfirmationView" destination="g6z-m3-tTk" id="s9W-yb-Lp3"/>
+                <outlet property="scopePreviewView" destination="8gQ-MM-YrK" id="wZa-4g-mpz"/>
+                <outlet property="showScopeConfirmationViewConstraint" destination="KcS-8b-8Tn" id="AtZ-Vb-Dru"/>
+                <outlet property="showScopePreviewViewConstraint" destination="aJT-Cc-w4z" id="qNq-33-nKa"/>
+                <outlet property="stackView" destination="WNn-OT-775" id="e6v-lH-deA"/>
+                <outlet property="stackViewWidthConstraint" destination="JhC-TF-mdA" id="8SH-QT-IiN"/>
+                <outlet property="view" destination="WPn-rX-5IO" id="s0e-Wz-P0a"/>
+            </connections>
+        </placeholder>
+        <placeholder placeholderIdentifier="IBFirstResponder" id="-2" customClass="UIResponder"/>
+        <view contentMode="scaleToFill" id="WPn-rX-5IO">
+            <rect key="frame" x="0.0" y="0.0" width="414" height="896"/>
+            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+            <subviews>
+                <view clipsSubviews="YES" contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="rph-I6-ZA7" customClass="TopRoundedView" customModule="Mixin" customModuleProvider="target">
+                    <rect key="frame" x="0.0" y="171.5" width="414" height="724.5"/>
+                    <subviews>
+                        <view clipsSubviews="YES" contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="1RF-kj-XBd">
+                            <rect key="frame" x="0.0" y="0.0" width="414" height="70"/>
+                            <subviews>
+                                <button opaque="NO" contentMode="scaleToFill" contentHorizontalAlignment="center" contentVerticalAlignment="center" lineBreakMode="middleTruncation" translatesAutoresizingMaskIntoConstraints="NO" id="FOI-GB-2Kz">
+                                    <rect key="frame" x="348" y="0.0" width="66" height="70"/>
+                                    <constraints>
+                                        <constraint firstAttribute="width" constant="66" id="WX3-bz-DMf"/>
+                                    </constraints>
+                                    <state key="normal" image="dialog_close"/>
+                                    <connections>
+                                        <action selector="backAction:" destination="-1" eventType="touchUpInside" id="OjO-OB-xf8"/>
+                                    </connections>
+                                </button>
+                            </subviews>
+                            <color key="backgroundColor" white="0.0" alpha="0.0" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+                            <constraints>
+                                <constraint firstAttribute="trailing" secondItem="FOI-GB-2Kz" secondAttribute="trailing" id="9z9-rW-4jb"/>
+                                <constraint firstAttribute="height" constant="70" id="Eru-aq-Zp2"/>
+                                <constraint firstAttribute="bottom" secondItem="FOI-GB-2Kz" secondAttribute="bottom" id="ZXg-yG-Xhy"/>
+                                <constraint firstItem="FOI-GB-2Kz" firstAttribute="top" secondItem="1RF-kj-XBd" secondAttribute="top" id="yUp-ak-ZaE"/>
+                            </constraints>
+                            <userDefinedRuntimeAttributes>
+                                <userDefinedRuntimeAttribute type="number" keyPath="layer.cornerRadius">
+                                    <integer key="value" value="13"/>
+                                </userDefinedRuntimeAttribute>
+                            </userDefinedRuntimeAttributes>
+                        </view>
+                        <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="Request Authorization" textAlignment="center" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="i3u-pZ-R09">
+                            <rect key="frame" x="32" y="70" width="350" height="21.5"/>
+                            <fontDescription key="fontDescription" type="system" weight="semibold" pointSize="18"/>
+                            <color key="textColor" name="text"/>
+                            <nil key="highlightedColor"/>
+                            <userDefinedRuntimeAttributes>
+                                <userDefinedRuntimeAttribute type="string" keyPath="dynamicTextSize" value="semibold18"/>
+                                <userDefinedRuntimeAttribute type="string" keyPath="local_title" value="request_authorization"/>
+                            </userDefinedRuntimeAttributes>
+                        </label>
+                        <stackView opaque="NO" contentMode="scaleToFill" axis="vertical" alignment="center" translatesAutoresizingMaskIntoConstraints="NO" id="WNn-OT-775">
+                            <rect key="frame" x="69.5" y="99.5" width="275" height="16"/>
+                            <subviews>
+                                <stackView opaque="NO" contentMode="scaleToFill" spacing="4" translatesAutoresizingMaskIntoConstraints="NO" id="FC9-8z-SqR">
+                                    <rect key="frame" x="110" y="0.0" width="55.5" height="16"/>
+                                    <subviews>
+                                        <view contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="HXw-Nw-vNO" customClass="AvatarImageView" customModule="Mixin" customModuleProvider="target">
+                                            <rect key="frame" x="0.0" y="0.0" width="16" height="16"/>
+                                            <color key="backgroundColor" name="background"/>
+                                            <constraints>
+                                                <constraint firstAttribute="width" constant="16" id="F6W-Qj-eAr"/>
+                                                <constraint firstAttribute="height" constant="16" id="nZi-2k-8gZ"/>
+                                            </constraints>
+                                        </view>
+                                        <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="Label" textAlignment="natural" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="a1w-fq-L4p">
+                                            <rect key="frame" x="20" y="0.0" width="35.5" height="16"/>
+                                            <fontDescription key="fontDescription" type="system" pointSize="14"/>
+                                            <color key="textColor" name="text_tertiary"/>
+                                            <nil key="highlightedColor"/>
+                                            <userDefinedRuntimeAttributes>
+                                                <userDefinedRuntimeAttribute type="string" keyPath="dynamicTextSize" value="regular14"/>
+                                            </userDefinedRuntimeAttributes>
+                                        </label>
+                                    </subviews>
+                                </stackView>
+                                <label hidden="YES" opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="Label" textAlignment="natural" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="ja9-m3-UeY">
+                                    <rect key="frame" x="120" y="0.0" width="35.5" height="0.0"/>
+                                    <fontDescription key="fontDescription" type="system" pointSize="14"/>
+                                    <color key="textColor" name="text_tertiary"/>
+                                    <nil key="highlightedColor"/>
+                                    <userDefinedRuntimeAttributes>
+                                        <userDefinedRuntimeAttribute type="string" keyPath="dynamicTextSize" value="regular14"/>
+                                    </userDefinedRuntimeAttributes>
+                                </label>
+                            </subviews>
+                            <constraints>
+                                <constraint firstAttribute="width" constant="275" id="JhC-TF-mdA"/>
+                            </constraints>
+                        </stackView>
+                        <view contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="8gQ-MM-YrK" customClass="AuthorizationScopePreviewView" customModule="Mixin" customModuleProvider="target">
+                            <rect key="frame" x="0.0" y="131.5" width="414" height="525"/>
+                            <color key="backgroundColor" name="background"/>
+                            <constraints>
+                                <constraint firstAttribute="height" constant="525" id="edY-xM-Iwg" customClass="ScreenHeightCompatibleLayoutConstraint" customModule="Mixin" customModuleProvider="target">
+                                    <userDefinedRuntimeAttributes>
+                                        <userDefinedRuntimeAttribute type="number" keyPath="shortConstant">
+                                            <real key="value" value="440"/>
+                                        </userDefinedRuntimeAttribute>
+                                        <userDefinedRuntimeAttribute type="number" keyPath="mediumConstant">
+                                            <real key="value" value="460"/>
+                                        </userDefinedRuntimeAttribute>
+                                        <userDefinedRuntimeAttribute type="number" keyPath="longConstant">
+                                            <real key="value" value="540"/>
+                                        </userDefinedRuntimeAttribute>
+                                        <userDefinedRuntimeAttribute type="number" keyPath="extraLongConstant">
+                                            <real key="value" value="580"/>
+                                        </userDefinedRuntimeAttribute>
+                                    </userDefinedRuntimeAttributes>
+                                </constraint>
+                            </constraints>
+                        </view>
+                        <view hidden="YES" contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="g6z-m3-tTk" customClass="AuthorizationScopeConfirmationView" customModule="Mixin" customModuleProvider="target">
+                            <rect key="frame" x="0.0" y="131.5" width="414" height="525"/>
+                            <color key="backgroundColor" name="background"/>
+                            <constraints>
+                                <constraint firstAttribute="height" constant="525" id="zvS-PV-dEP" customClass="ScreenHeightCompatibleLayoutConstraint" customModule="Mixin" customModuleProvider="target">
+                                    <userDefinedRuntimeAttributes>
+                                        <userDefinedRuntimeAttribute type="number" keyPath="shortConstant">
+                                            <real key="value" value="440"/>
+                                        </userDefinedRuntimeAttribute>
+                                        <userDefinedRuntimeAttribute type="number" keyPath="mediumConstant">
+                                            <real key="value" value="460"/>
+                                        </userDefinedRuntimeAttribute>
+                                        <userDefinedRuntimeAttribute type="number" keyPath="longConstant">
+                                            <real key="value" value="540"/>
+                                        </userDefinedRuntimeAttribute>
+                                        <userDefinedRuntimeAttribute type="number" keyPath="extraLongConstant">
+                                            <real key="value" value="580"/>
+                                        </userDefinedRuntimeAttribute>
+                                    </userDefinedRuntimeAttributes>
+                                </constraint>
+                            </constraints>
+                        </view>
+                    </subviews>
+                    <color key="backgroundColor" name="background"/>
+                    <constraints>
+                        <constraint firstAttribute="trailing" secondItem="1RF-kj-XBd" secondAttribute="trailing" id="3Au-3l-pBF"/>
+                        <constraint firstItem="WNn-OT-775" firstAttribute="centerX" secondItem="rph-I6-ZA7" secondAttribute="centerX" id="CuX-1K-zr3"/>
+                        <constraint firstItem="1RF-kj-XBd" firstAttribute="top" secondItem="rph-I6-ZA7" secondAttribute="top" id="FXO-sl-GQk"/>
+                        <constraint firstItem="g6z-m3-tTk" firstAttribute="top" secondItem="WNn-OT-775" secondAttribute="bottom" constant="16" id="Fg4-qH-Zdl"/>
+                        <constraint firstAttribute="bottom" secondItem="g6z-m3-tTk" secondAttribute="bottom" priority="250" id="KcS-8b-8Tn"/>
+                        <constraint firstItem="WNn-OT-775" firstAttribute="top" secondItem="i3u-pZ-R09" secondAttribute="bottom" constant="8" id="YMf-Gl-Bu7"/>
+                        <constraint firstAttribute="trailing" secondItem="g6z-m3-tTk" secondAttribute="trailing" id="Ysk-Cg-NpY"/>
+                        <constraint firstAttribute="trailing" secondItem="8gQ-MM-YrK" secondAttribute="trailing" id="bI1-Ft-sqW"/>
+                        <constraint firstItem="g6z-m3-tTk" firstAttribute="leading" secondItem="rph-I6-ZA7" secondAttribute="leading" id="bVm-lP-Zcn"/>
+                        <constraint firstItem="i3u-pZ-R09" firstAttribute="leading" secondItem="rph-I6-ZA7" secondAttribute="leading" constant="32" id="gtN-23-MVz"/>
+                        <constraint firstItem="i3u-pZ-R09" firstAttribute="top" secondItem="1RF-kj-XBd" secondAttribute="bottom" id="lm2-Ze-CN1" customClass="ScreenHeightCompatibleLayoutConstraint" customModule="Mixin" customModuleProvider="target">
+                            <userDefinedRuntimeAttributes>
+                                <userDefinedRuntimeAttribute type="number" keyPath="extraLongConstant">
+                                    <real key="value" value="0.0"/>
+                                </userDefinedRuntimeAttribute>
+                                <userDefinedRuntimeAttribute type="number" keyPath="longConstant">
+                                    <real key="value" value="0.0"/>
+                                </userDefinedRuntimeAttribute>
+                                <userDefinedRuntimeAttribute type="number" keyPath="mediumConstant">
+                                    <real key="value" value="0.0"/>
+                                </userDefinedRuntimeAttribute>
+                                <userDefinedRuntimeAttribute type="number" keyPath="shortConstant">
+                                    <real key="value" value="-40"/>
+                                </userDefinedRuntimeAttribute>
+                            </userDefinedRuntimeAttributes>
+                        </constraint>
+                        <constraint firstAttribute="trailing" secondItem="i3u-pZ-R09" secondAttribute="trailing" constant="32" id="mO2-2m-95Q"/>
+                        <constraint firstItem="8gQ-MM-YrK" firstAttribute="leading" secondItem="rph-I6-ZA7" secondAttribute="leading" id="nz6-Ci-zfX"/>
+                        <constraint firstItem="8gQ-MM-YrK" firstAttribute="top" secondItem="WNn-OT-775" secondAttribute="bottom" constant="16" id="p1y-GO-AHC"/>
+                        <constraint firstItem="1RF-kj-XBd" firstAttribute="leading" secondItem="rph-I6-ZA7" secondAttribute="leading" id="uMI-E7-6Gb"/>
+                    </constraints>
+                </view>
+            </subviews>
+            <viewLayoutGuide key="safeArea" id="hQj-XO-iMW"/>
+            <color key="backgroundColor" white="0.0" alpha="0.0" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+            <constraints>
+                <constraint firstAttribute="trailing" secondItem="rph-I6-ZA7" secondAttribute="trailing" id="0qw-D7-NiJ"/>
+                <constraint firstAttribute="bottom" secondItem="rph-I6-ZA7" secondAttribute="bottom" id="K1m-zD-4D7"/>
+                <constraint firstItem="8gQ-MM-YrK" firstAttribute="bottom" secondItem="hQj-XO-iMW" secondAttribute="bottom" priority="750" id="aJT-Cc-w4z"/>
+                <constraint firstItem="rph-I6-ZA7" firstAttribute="leading" secondItem="WPn-rX-5IO" secondAttribute="leading" id="eHP-yW-E18"/>
+            </constraints>
+            <point key="canvasLocation" x="81.159420289855078" y="62.946428571428569"/>
+        </view>
+    </objects>
+    <resources>
+        <image name="dialog_close" width="26" height="26"/>
+        <namedColor name="background">
+            <color red="1" green="1" blue="1" alpha="1" colorSpace="custom" customColorSpace="displayP3"/>
+        </namedColor>
+        <namedColor name="text">
+            <color red="0.0" green="0.0" blue="0.0" alpha="1" colorSpace="custom" customColorSpace="displayP3"/>
+        </namedColor>
+        <namedColor name="text_tertiary">
+            <color red="0.59999999999999998" green="0.59999999999999998" blue="0.59999999999999998" alpha="1" colorSpace="custom" customColorSpace="displayP3"/>
+        </namedColor>
+    </resources>
+</document>

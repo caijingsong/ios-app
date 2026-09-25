@@ -1,11 +1,11 @@
 import UIKit
+import MixinServices
 
 class InviteLinkViewController: UIViewController {
 
     @IBOutlet weak var iconImageView: AvatarImageView!
     @IBOutlet weak var groupNameLabel: UILabel!
     @IBOutlet weak var linkLabel: UILabel!
-    @IBOutlet weak var resetButton: StateResponsiveButton!
 
     private var conversation: ConversationItem!
     
@@ -19,8 +19,13 @@ class InviteLinkViewController: UIViewController {
     
     override func viewDidLoad() {
         super.viewDidLoad()
-
-        iconImageView.setGroupImage(with: conversation.iconUrl, conversationId: conversation.conversationId)
+        title = R.string.localizable.invite_to_group_via_link()
+        navigationItem.rightBarButtonItem = .tintedIcon(
+            image: R.image.ic_title_more(),
+            target: self,
+            action: #selector(confirmRevokeLink(_:))
+        )
+        iconImageView.setGroupImage(with: conversation.iconUrl)
         groupNameLabel.text = conversation.name
         updateUI()
     }
@@ -38,25 +43,46 @@ class InviteLinkViewController: UIViewController {
     
     @IBAction func copyLinkAction(_ sender: Any) {
         UIPasteboard.general.string = conversation.codeUrl
-        NotificationCenter.default.postOnMain(name: .ToastMessageDidAppear, object: Localized.TOAST_COPIED)
+        showAutoHiddenHud(style: .notification, text: R.string.localizable.copied())
     }
     
     @IBAction func qrCodeAction(_ sender: Any) {
-        let vc = QRCodeViewController.instance(content: .group(conversation))
-        navigationController?.pushViewController(vc, animated: true)
-    }
-    
-    @IBAction func revokeLinkAction(_ sender: Any) {
-        guard !resetButton.isBusy else {
+        guard let conversation, let code = conversation.codeUrl else {
             return
         }
-
-        resetButton.isBusy = true
-        ConversationAPI.shared.updateCodeId(conversationId: conversation.conversationId) { [weak self](result) in
+        let qrCode = QRCodeViewController(title: conversation.name,
+                                          content: code,
+                                          foregroundColor: .black,
+                                          description: R.string.localizable.group_qr_code_prompt(),
+                                          centerContent: .avatar({ $0.setGroupImage(conversation: conversation) }))
+        present(qrCode, animated: true)
+    }
+    
+    class func instance(conversation: ConversationItem) -> UIViewController {
+        let vc = R.storyboard.group.invite_link()!
+        vc.conversation = conversation
+        return vc
+    }
+    
+    @objc private func confirmRevokeLink(_ button: BusyButton) {
+        let alc = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+        alc.addAction(UIAlertAction(title: R.string.localizable.reset_link(), style: .default, handler: { [weak self] (_) in
+            self?.revokeLink(button: button)
+        }))
+        alc.addAction(UIAlertAction(title: R.string.localizable.cancel(), style: .cancel, handler: nil))
+        self.present(alc, animated: true, completion: nil)
+    }
+    
+    private func revokeLink(button: BusyButton) {
+        guard !button.isBusy else {
+            return
+        }
+        button.isBusy = true
+        ConversationAPI.updateCodeId(conversationId: conversation.conversationId) { [weak self](result) in
             guard let weakSelf = self else {
                 return
             }
-            weakSelf.resetButton.isBusy = false
+            button.isBusy = false
             switch result {
             case let .success(response):
                 DispatchQueue.global().async {
@@ -66,16 +92,10 @@ class InviteLinkViewController: UIViewController {
                         weakSelf.updateUI()
                     }
                 }
-            case .failure:
-                break
+            case let .failure(error):
+                showAutoHiddenHud(style: .error, text: error.localizedDescription)
             }
         }
     }
-    
-    class func instance(conversation: ConversationItem) -> UIViewController {
-        let vc = Storyboard.group.instantiateViewController(withIdentifier: "invite_link") as! InviteLinkViewController
-        vc.conversation = conversation
-        return ContainerViewController.instance(viewController: vc, title: Localized.GROUP_NAVIGATION_TITLE_INVITE_LINK)
-    }
-    
+
 }

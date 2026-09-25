@@ -1,0 +1,83 @@
+import UIKit
+import MixinServices
+
+final class PhoneContactsSettingViewController: SettingsTableViewController {
+    
+    private let dataSource = SettingsDataSource(sections: [])
+    
+    private lazy var hud = Hud()
+    private lazy var uploadSection = SettingsSection(rows: [
+        SettingsRow(title: R.string.localizable.upload_mobile_contacts(),
+                    titleStyle: .highlighted)
+    ])
+    private lazy var deleteSection = SettingsSection(rows: [
+        SettingsRow(title: R.string.localizable.delete_synced_contact(),
+                    titleStyle: .destructive)
+    ])
+    
+    private var hasUploadMobileContacts: Bool {
+        return AppGroupUserDefaults.User.autoUploadsContacts
+    }
+    
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+    
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        title = R.string.localizable.phone_contacts()
+        tableView.tableHeaderView = R.nib.phoneContactsSettingTableHeaderView(withOwner: nil)
+        reloadData()
+        dataSource.tableViewDelegate = self
+        dataSource.tableView = tableView
+    }
+    
+    private func reloadData() {
+        if hasUploadMobileContacts {
+            dataSource.reloadSections([deleteSection])
+        } else {
+            dataSource.reloadSections([uploadSection])
+        }
+    }
+    
+    private func uploadContact(isUpload: Bool, contacts: [PhoneContact]) {
+        guard let navigationController = navigationController else {
+            return
+        }
+        let hud = self.hud
+        hud.show(style: .busy, text: "")
+        PhoneContactAPI.upload(contacts: contacts, completion: { [weak self](result) in
+            switch result {
+            case .success:
+                hud.hide()
+                AppGroupUserDefaults.User.autoUploadsContacts = isUpload
+                self?.reloadData()
+                if isUpload {
+                    ContactAPI.syncContacts()
+                }
+            case .failure(let error):
+                hud.set(style: .error, text: error.localizedDescription)
+                hud.scheduleAutoHidden()
+            }
+        })
+    }
+    
+}
+
+extension PhoneContactsSettingViewController: UITableViewDelegate {
+    
+    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        tableView.deselectRow(at: indexPath, animated: true)
+        if hasUploadMobileContacts {
+            let alert = UIAlertController(title: R.string.localizable.setting_mobile_contact_warning(), message: nil, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: R.string.localizable.cancel(), style: .cancel, handler: nil))
+            alert.addAction(UIAlertAction(title: R.string.localizable.delete(), style: .default, handler: { (_) in
+                self.uploadContact(isUpload: false, contacts: [])
+            }))
+            present(alert, animated: true, completion: nil)
+        } else {
+            uploadContact(isUpload: true, contacts: ContactsManager.shared.contacts)
+        }
+    }
+    
+}

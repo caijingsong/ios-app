@@ -1,16 +1,21 @@
 import UIKit
+import MixinServices
 
-class TransferMessageViewModel: CardMessageViewModel {
+class TransferMessageViewModel: CardMessageViewModel, TitledCardContentWidthCalculable {
     
     let snapshotAmount: String?
     
-    override init(message: MessageItem, style: Style, fits layoutWidth: CGFloat) {
-        snapshotAmount = CurrencyFormatter.localizedString(from: message.snapshotAmount, format: .pretty, sign: .whenNegative)
-        super.init(message: message, style: style, fits: layoutWidth)
+    override init(message: MessageItem) {
+        snapshotAmount = CurrencyFormatter.localizedString(from: message.snapshotAmount, format: .precision, sign: .whenNegative)
+        super.init(message: message)
     }
     
-    override func didSetStyle() {
-        super.didSetStyle()
+    override func layout(width: CGFloat, style: Style) {
+        updateContentWidth(title: snapshotAmount,
+                           titleFont: MessageFontSet.transferAmount.scaled,
+                           subtitle: message.tokenSymbol,
+                           subtitleFont: MessageFontSet.cardSubtitle.scaled)
+        super.layout(width: width, style: style)
         if !style.contains(.received) {
             timeFrame.origin.x += statusFrame.width
         }

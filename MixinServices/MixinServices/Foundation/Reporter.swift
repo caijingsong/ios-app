@@ -1,0 +1,220 @@
+import Foundation
+import CryptoKit
+import Bugsnag
+
+open class Reporter {
+    
+    public enum Event: String {
+        case signUpStart            = "sign_up_start"
+        case signUpCAPTCHA          = "sign_up_captcha"
+        case signUpAccountCreated   = "sign_up_account_created"
+        case signUpFullname         = "sign_up_fullname"
+        case signUpSignalInit       = "sign_up_signal_init"
+        case signUpPINSet           = "sign_up_pin_set"
+        case signUpPINQuiz          = "sign_up_pin_quiz"
+        case signUpEnd              = "sign_up_end"
+        
+        case loginStart             = "login_start"
+        case loginSMSSendConfirmed  = "login_sms_send_confirmed"
+        case loginCAPTCHA           = "login_captcha"
+        case loginSMSVerify         = "login_sms_verify"
+        case loginRestore           = "login_restore"
+        case loginSignalInit        = "login_signal_init"
+        case loginPINVerify         = "login_pin_verify"
+        case loginEnd               = "login_end"
+        
+        case addPhoneStart      = "add_phone_start"
+        case addPhoneVerifyPIN  = "add_phone_verify_pin"
+        case addPhoneEnd        = "add_phone_end"
+        
+        case tradeSpotStart         = "trade_spot_start"
+        case tradeSpotEnd           = "trade_spot_end"
+        case tradeSpotTokenSelect   = "trade_spot_token_select"
+        case tradeSpotQuote         = "trade_spot_quote"
+        case tradeSpotPreview       = "trade_spot_preview"
+        case tradeSpotOrders        = "trade_spot_orders"
+        case tradeSpotOrderDetail   = "trade_spot_order_detail"
+        
+        case tradePerpsOpenStart                      = "trade_perps_open_start"
+        case tradePerpsOpenTokenSelect                = "trade_perps_open_token_select"
+        case tradePerpsOpenAmountPercent              = "trade_perps_open_amount_percent"
+        case tradePerpsOpenAmountBalance              = "trade_perps_open_amount_balance"
+        case tradePerpsOpenLeverageSelect             = "trade_perps_open_leverage_select"
+        case tradePerpsOpenPreview                    = "trade_perps_open_preview"
+        case tradePerpsOpenPreviewConfirm             = "trade_perps_open_preview_confirm"
+        case tradePerpsOpenPreviewCancel              = "trade_perps_open_preview_cancel"
+        case tradePerpsOpenEnd                        = "trade_perps_open_end"
+        
+        case tradePerpsAddPositionStart               = "trade_perps_add_position_start"
+        case tradePerpsAddPositionTokenSelect         = "trade_perps_add_position_token_select"
+        case tradePerpsAddPositionPreview             = "trade_perps_add_position_preview"
+        case tradePerpsAddPositionPreviewConfirm      = "trade_perps_add_position_preview_confirm"
+        case tradePerpsAddPositionPreviewCancel       = "trade_perps_add_position_preview_cancel"
+        case tradePerpsAddPositionCancel              = "trade_perps_add_position_cancel"
+        case tradePerpsAddPositionEnd                 = "trade_perps_add_position_end"
+        
+        case tradePerpsAddMarginStart                 = "trade_perps_add_margin_start"
+        case tradePerpsAddMarginTokenSelect           = "trade_perps_add_margin_token_select"
+        case tradePerpsAddMarginPreview               = "trade_perps_add_margin_preview"
+        case tradePerpsAddMarginPreviewConfirm        = "trade_perps_add_margin_preview_confirm"
+        case tradePerpsAddMarginPreviewCancel         = "trade_perps_add_margin_preview_cancel"
+        case tradePerpsAddMarginCancel                = "trade_perps_add_margin_cancel"
+        case tradePerpsAddMarginEnd                   = "trade_perps_add_margin_end"
+        
+        case tradePerpsReduceMarginStart              = "trade_perps_reduce_margin_start"
+        case tradePerpsReduceMarginPreview            = "trade_perps_reduce_margin_preview"
+        case tradePerpsReduceMarginPreviewConfirm     = "trade_perps_reduce_margin_preview_confirm"
+        case tradePerpsReduceMarginPreviewCancel      = "trade_perps_reduce_margin_preview_cancel"
+        case tradePerpsReduceMarginCancel             = "trade_perps_reduce_margin_cancel"
+        case tradePerpsReduceMarginEnd                = "trade_perps_reduce_margin_end"
+        
+        case tradePerpsReducePositionStart            = "trade_perps_reduce_position_start"
+        case tradePerpsReducePositionPreview          = "trade_perps_reduce_position_preview"
+        case tradePerpsReducePositionPreviewConfirm   = "trade_perps_reduce_position_preview_confirm"
+        case tradePerpsReducePositionPreviewCancel    = "trade_perps_reduce_position_preview_cancel"
+        case tradePerpsReducePositionCancel           = "trade_perps_reduce_position_cancel"
+        case tradePerpsReducePositionEnd              = "trade_perps_reduce_position_end"
+        
+        case tradePerpsCloseStart                     = "trade_perps_close_start"
+        case tradePerpsClosePreviewConfirm            = "trade_perps_close_preview_confirm"
+        case tradePerpsClosePreviewCancel             = "trade_perps_close_preview_cancel"
+        case tradePerpsCloseEnd                       = "trade_perps_close_end"
+        
+        case tradePerpsActivities                     = "trade_perps_activities"
+        case tradePerpsActivityDetail                 = "trade_perps_activity_detail"
+        case tradePerpsGuide                          = "trade_perps_guide"
+        case tradePerpsAllPositions                   = "trade_perps_all_positions"
+        
+        case buyStart           = "buy_start"
+        case buyTokenSelect     = "buy_token_select"
+        case buyFiatSelect      = "buy_fiat_select"
+        case buyPreview         = "buy_preview"
+        
+        case assetDetail        = "asset_detail"
+        case allTransactions    = "all_transactions"
+        case transactionDetail  = "transaction_detail"
+        
+        case receiveStart       = "asset_receive_start"
+        case receiveTokenSelect = "asset_receive_token_select"
+        case receiveChainSelect = "asset_receive_chain_select"
+        case receiveEnd         = "asset_receive_end"
+        case receiveSuccess     = "asset_receive_success"
+        
+        case sendStart          = "asset_send_start"
+        case sendTokenSelect    = "asset_send_token_select"
+        case sendRecipient      = "asset_send_recipient"
+        case sendAmount         = "asset_send_amount"
+        case sendPreview        = "asset_send_preview"
+        case sendEnd            = "asset_send_end"
+        
+        case hideAsset          = "hide_asset"
+        case showAsset          = "show_asset"
+        
+        case marketDetail           = "market_detail"
+        case marketsTabSwitch       = "markets_tab_switch"
+        case marketsPriceChangePeriodSwitch = "markets_price_change_period_switch"
+        case marketsQuoteColorSwitch = "markets_quote_color_switch"
+        case marketsListSort        = "markets_list_sort"
+        case marketShare            = "market_share"
+        case marketWatchlistAdd     = "market_watchlist_add"
+        case marketWatchlistRemove  = "market_watchlist_remove"
+        case marketPriceAlerts      = "market_price_alerts"
+        case marketPriceAlertAdd    = "market_price_alert_add"
+        
+        case addAddressStart    = "address_book_add_start"
+        case addAddressMemo     = "address_book_add_memo"
+        case addAddressLabel    = "address_book_add_label"
+        case addAddressPreview  = "address_book_add_preview"
+        case addAddressEnd      = "address_book_add_end"
+        
+        case homeTabSwitch      = "home_tab_switch"
+        case moreTabSwitch      = "more_tab_switch"
+        
+        case accountRecoverPIN     = "account_recover_pin"
+        
+        case customerServiceDialog       = "customer_service_dialog"
+        case errorSessionVerifications   = "error_session_verifications"
+    }
+    
+    public struct UserProperty: OptionSet {
+        
+        public static let all = UserProperty(rawValue: .max)
+        
+        public static let emergencyContact = UserProperty(rawValue: 1 << 0)
+        public static let membership = UserProperty(rawValue: 1 << 1)
+        public static let notificationAuthorization = UserProperty(rawValue: 1 << 2)
+        public static let assetLevel = UserProperty(rawValue: 1 << 3)
+        
+        public let rawValue: UInt
+        
+        public init(rawValue: UInt) {
+            self.rawValue = rawValue
+        }
+        
+    }
+    
+    public typealias UserInfo = [String: Any]
+    
+    public required init() {
+        
+    }
+    
+    open func configure() {
+        guard
+            let path = Bundle.main.path(forResource: "Mixin-Keys", ofType: "plist"),
+            let keys = NSDictionary(contentsOfFile: path),
+            let key = keys["Bugsnag"] as? String
+        else {
+            return
+        }
+        Bugsnag.start(withApiKey: key)
+    }
+    
+    open func registerUserInformation(account: Account) {
+        let userIDHash = Reporter.userIDHash(userID: account.userID)
+        Bugsnag.setUser(
+            userIDHash,
+            withEmail: "\(account.identityNumber)@mixin.id",
+            andName: account.fullName
+        )
+    }
+    
+    open func report(error: Error) {
+        Bugsnag.notifyError(error)
+    }
+    
+    open func report(event: Event, tags: [String: String]? = nil) {
+        // Reduce bug report usage
+    }
+    
+    open func report(eventName: String, tags: [String: String]? = nil) {
+        
+    }
+    
+    open func updateUserProperties(_ properties: UserProperty, account: Account? = nil) {
+        
+    }
+    
+    open func updateUserProperty(key: String, value: String) {
+        
+    }
+    
+}
+
+extension Reporter {
+    
+    public static func userIDHash(userID: String) -> String {
+        let data = Data(userID.utf8)
+        let hash = SHA256.hash(data: data)
+        return hash.hexEncodedString()
+    }
+    
+}
+
+extension Reporter {
+ 
+    public static func assetLevel(decimalUSDPrice: Decimal, decimalAmount: Decimal) -> String {
+        decimalUSDPrice.isZero ? "N/A" : (decimalUSDPrice * decimalAmount).reportingAssetLevel
+    }
+    
+}

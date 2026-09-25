@@ -1,14 +1,9 @@
 import Foundation
 
 extension Array {
-
-    mutating func add(element: Array.Element) -> Array<Element> {
-        self.append(element)
-        return self
-    }
-
+    
     public func indexSearchingBackwards(where predicate: (Element) throws -> Bool) rethrows -> Int? {
-        guard let reversedIndex = try reversed().index(where: predicate) else {
+        guard let reversedIndex = try reversed().firstIndex(where: predicate) else {
             return nil
         }
         return index(before: reversedIndex.base)
@@ -23,20 +18,27 @@ extension Array {
         let index = self.index(after: i)
         return index < self.endIndex ? index : nil
     }
-
+    
+    func slices(ofSize size: Int) -> [[Element]] {
+        let endIndex = index(startIndex, offsetBy: count)
+        return stride(from: startIndex, to: endIndex, by: size).map {
+            Array(self[$0..<Swift.min($0 + size, count)])
+        }
+    }
+    
 }
 
 extension Array where Iterator.Element: Equatable {
     
     func element(before element: Element) -> Element? {
-        guard let index = index(of: element), let indexBefore = self.safeIndex(before: index) else {
+        guard let index = firstIndex(of: element), let indexBefore = self.safeIndex(before: index) else {
             return nil
         }
         return self[indexBefore]
     }
     
     func element(after element: Element) -> Element? {
-        guard let index = index(of: element) else {
+        guard let index = firstIndex(of: element) else {
             return nil
         }
         var possibleIndexAfter = self.safeIndex(after: index)

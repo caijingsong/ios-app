@@ -1,0 +1,185 @@
+import UIKit
+import CryptoKit
+import MixinServices
+
+final class AddWalletFetchAddressViewController: IntroductionViewController {
+    
+    enum Behavior {
+        case alwaysNavigateToSelector
+        case breaksOnImportedWalletFound((_ walletID: String) -> Void)
+    }
+    
+    private let mnemonics: BIP39Mnemonics
+    private let encryptedMnemonics: EncryptedBIP39Mnemonics
+    private let behavior: Behavior
+    private let busyIndicator = ActivityIndicatorView()
+    private let searchWalletDerivationsCount: UInt32 = 10
+    
+    init(
+        mnemonics: BIP39Mnemonics,
+        encryptedMnemonics: EncryptedBIP39Mnemonics,
+        behavior: Behavior,
+    ) {
+        self.mnemonics = mnemonics
+        self.encryptedMnemonics = encryptedMnemonics
+        self.behavior = behavior
+        super.init()
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("Storyboard is not supported")
+    }
+    
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        
+        imageViewTopConstraint.constant = switch ScreenHeight.current {
+        case .short:
+            40
+        case .medium:
+            80
+        case .long, .extraLong:
+            120
+        }
+        imageView.image = R.image.mnemonic_login()
+        titleLabel.text = R.string.localizable.fetching_in_to_your_wallet()
+        
+        contentLabelTopConstraint.constant = 16
+        contentTextView.font = UIFontMetrics.default.scaledFont(for: .systemFont(ofSize: 14))
+        contentTextView.adjustsFontForContentSizeCategory = true
+        contentTextView.textAlignment = .center
+        
+        busyIndicator.tintColor = R.color.outline_primary()
+        actionStackView.addArrangedSubview(busyIndicator)
+        busyIndicator.snp.makeConstraints { make in
+            make.height.equalTo(48)
+        }
+        
+        fetchAddresses(mnemonics: mnemonics)
+    }
+    
+    @objc private func retry(_ sender: Any) {
+        fetchAddresses(mnemonics: mnemonics)
+    }
+    
+    private func showLoading() {
+        busyIndicator.startAnimating()
+        actionButton.isHidden = true
+        contentTextView.textColor = R.color.text_tertiary()
+        contentTextView.text = R.string.localizable.mnemonic_phrase_take_long()
+        contentTextView.isHidden = false
+    }
+    
+    private func showError(_ description: String) {
+        busyIndicator.stopAnimating()
+        actionButton.style = .filled
+        actionButton.setTitle(R.string.localizable.retry(), for: .normal)
+        actionButton.addTarget(self, action: #selector(retry(_:)), for: .touchUpInside)
+        actionButton.isHidden = false
+        contentTextView.textColor = R.color.error_red()
+        contentTextView.text = description
+        contentTextView.isHidden = false
+    }
+    
+    private func fetchAddresses(mnemonics: BIP39Mnemonics) {
+        showLoading()
+        let lastPathIndex: UInt32 = searchWalletDerivationsCount - 1
+        DispatchQueue.global().async { [weak self, behavior, encryptedMnemonics] in
+            let wallets: [BIP39Mnemonics.DerivedWallet]
+            do {
+                wallets = try mnemonics.deriveWallets(indices: 0...lastPathIndex)
+            } catch {
+                DispatchQueue.main.async {
+                    self?.showError(error.localizedDescription)
+                }
+                return
+            }
+            let addresses = wallets.flatMap { wallet in
+                [
+                    wallet.bitcoin.address,
+                    wallet.pearl.address,
+                    wallet.evm.address,
+                    wallet.solana.address,
+                ]
+            }
+            switch behavior {
+            case .alwaysNavigateToSelector:
+                break
+            case .breaksOnImportedWalletFound(let callback):
+                if let id = Web3AddressDAO.shared.firstWalletID(matching: addresses) {
+                    DispatchQueue.main.async {
+                        callback(id)
+                    }
+                    return
+                }
+            }
+            let firstNameIndex = SequentialWalletNameGenerator.nextNameIndex(category: .common)
+            let walletNames = Web3WalletDAO.shared.walletNames()
+            RouteAPI.assets(searchAddresses: addresses, queue: .global()) { result in
+                switch result {
+                case let .success(assets):
+                    let tokens = assets.reduce(into: [:]) { result, addressAssets in
+                        result[addressAssets.address] = addressAssets.assets
+                    }
+                    var candidates: [WalletCandidate] = wallets.compactMap { wallet in
+                        let bitcoinTokens = tokens[wallet.bitcoin.address] ?? []
+                        let pearlTokens = tokens[wallet.pearl.address] ?? []
+                        let evmTokens = tokens[wallet.evm.address] ?? []
+                        let solanaTokens = tokens[wallet.solana.address] ?? []
+                        let allTokens = bitcoinTokens + pearlTokens + evmTokens + solanaTokens
+                        
+                        let name = walletNames[wallet.bitcoin.address]
+                        ?? walletNames[wallet.pearl.address]
+                        ?? walletNames[wallet.evm.address]
+                        ?? walletNames[wallet.solana.address]
+                        
+                        if allTokens.isEmpty && name == nil {
+                            return nil
+                        } else {
+                            return WalletCandidate(
+                                bitcoinWallet: wallet.bitcoin,
+                                pearlWallet: wallet.pearl,
+                                evmWallet: wallet.evm,
+                                solanaWallet: wallet.solana,
+                                tokens: allTokens,
+                                importedAsName: name
+                            )
+                        }
+                    }
+                    if candidates.isEmpty {
+                        let wallet = wallets[0]
+                        let name = walletNames[wallet.bitcoin.address]
+                        ?? walletNames[wallet.pearl.address]
+                        ?? walletNames[wallet.evm.address]
+                        ?? walletNames[wallet.solana.address]
+                        candidates = [
+                            .empty(
+                                bitcoinWallet: wallet.bitcoin,
+                                pearlWallet: wallet.pearl,
+                                evmWallet: wallet.evm,
+                                solanaWallet: wallet.solana,
+                                importedAsName: name
+                            )
+                        ]
+                    }
+                    DispatchQueue.main.async {
+                        let selector = AddWalletSelectorViewController(
+                            mnemonics: mnemonics,
+                            encryptedMnemonics: encryptedMnemonics,
+                            candidates: candidates,
+                            lastPathIndex: lastPathIndex,
+                            firstNameIndex: firstNameIndex
+                        )
+                        self?.navigationController?.pushViewController(replacingCurrent: selector, animated: true)
+                    }
+                case let .failure(error):
+                    Logger.general.debug(category: "AddWallet", message: "\(error)")
+                    DispatchQueue.main.async {
+                        self?.showError(error.localizedDescription)
+                    }
+                }
+            }
+        }
+    }
+    
+}

@@ -5,6 +5,9 @@ import AudioToolbox
 extension UIDevice {
 
     static let isJailbreak: Bool = {
+        #if DEBUG
+        return false
+        #else
         if FileManager.default.fileExists(atPath: "/Applications/Cydia.app") ||
             FileManager.default.fileExists(atPath: "/Library/MobileSubstrate/MobileSubstrate.dylib") ||
             FileManager.default.fileExists(atPath: "/bin/bash") ||
@@ -27,10 +30,27 @@ extension UIDevice {
         } catch {
             return false
         }
+        #endif
     }()
+    
+}
+
+extension UIDevice {
+    
+    private static var paymentSuccessSoundID: SystemSoundID = 0
     
     func playInputDelete() {
         AudioServicesPlaySystemSound(1155)
+    }
+    
+    func playPaymentSuccess() {
+        assert(Thread.isMainThread)
+        if Self.paymentSuccessSoundID == 0, let url = R.file.payment_successCaf.url() {
+            AudioServicesCreateSystemSoundID(url as CFURL, &Self.paymentSuccessSoundID)
+        }
+        if Self.paymentSuccessSoundID != 0 {
+            AudioServicesPlaySystemSound(Self.paymentSuccessSoundID)
+        }
     }
     
 }

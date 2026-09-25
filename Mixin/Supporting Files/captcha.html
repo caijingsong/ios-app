@@ -1,0 +1,112 @@
+<html>
+    <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta name="color-scheme" content="light dark">
+        <style>
+            body {
+                margin: 0;
+                height: 100dvh;
+                display: grid;
+                place-items: center;
+                background-color: white;
+                color: black;
+            }
+
+            @media (prefers-color-scheme: dark) {
+              body {
+                background-color: #111;
+                color: #eee;
+              }
+            }
+        </style>
+        <script type="text/javascript">
+
+        // This function is deliberately given a complicated name to avoid conflicts
+        var postMessageToMixinMessenger = function(value) {
+            window.webkit.messageHandlers.mixin_messenger_captcha.postMessage({ message: value });
+        }
+
+        var postReCaptchaToken = function(value) {
+            window.webkit.messageHandlers.mixin_messenger_captcha.postMessage({ recaptcha_token: value });
+        }
+
+        var postHCaptchaToken = function(value) {
+            window.webkit.messageHandlers.mixin_messenger_captcha.postMessage({ hcaptcha_token: value });
+        }
+
+        var gReCaptchaExecute = function() {
+            var observer = new MutationObserver(function(mutations) {
+                postMessageToMixinMessenger("challenge_change");
+            });
+            observer.observe(document.getElementsByTagName("div")[4], { attributes: true, attributeFilter: ['style'] });
+            grecaptcha.execute();
+        };
+
+        var initGTCaptcha = function() {
+            initGeetest4({
+                captchaId: '${api_key}',
+                product: 'bind',
+                hideBar: ['close']
+            }, function(captcha) {
+                captcha.onReady(function(){
+                    postMessageToMixinMessenger("challenge_change");
+                    captcha.showCaptcha();
+                }).onSuccess(function(){
+                    var result = captcha.getValidate();
+                    window.webkit.messageHandlers.mixin_messenger_captcha.postMessage({
+                        gtcaptcha_result: result
+                    });
+                }).onClose(function () {
+                    postMessageToMixinMessenger("gt_close");
+                });
+            });
+        };
+
+        var onReCaptchaLoad = function() {
+            var observer = new MutationObserver(function(mutations) {
+                var inserted = false;
+                for (var i = 0; i < mutations.length; i++) {
+                    if (mutations[i].addedNodes[0].nodeName.toUpperCase() == 'div'.toUpperCase()) {
+                        inserted = true;
+                        break;
+                    }
+                }
+                if (inserted) {
+                    observer.disconnect();
+                    postMessageToMixinMessenger("recaptcha_did_load");
+                }
+            })
+            observer.observe(document.getElementsByTagName("body")[0], { childList: true })
+            grecaptcha.render('html_element', {
+                'sitekey': '${api_key}',
+                'callback': postReCaptchaToken,
+                'size': 'invisible'
+            });
+        };
+
+        var onHCaptchaFailed = function() {
+            postMessageToMixinMessenger("hcaptcha_failed");
+        }
+        
+        var onHCaptchaLoad = function() {
+            var widgetID = hcaptcha.render('html_element', {
+                'sitekey': '${api_key}',
+                'callback': postHCaptchaToken,
+                'open-callback': function() { postMessageToMixinMessenger("challenge_change"); },
+                'expired-callback': onHCaptchaFailed,
+                'chalexpired-callback': onHCaptchaFailed,
+                'error-callback': onHCaptchaFailed,
+                'size': 'invisible'
+            });
+            hcaptcha.execute(widgetID);
+        }
+        </script>
+    </head>
+    <body>
+        <form action="?" method="POST" style="hidden">
+            <div id="html_element"></div>
+        </form>
+        ${script_tag}
+        </script>
+    </body>
+</html>

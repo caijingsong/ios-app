@@ -1,26 +1,48 @@
 import UIKit
+import MixinServices
 
 class RecentStickersViewController: StickersViewController {
+    
+    override var isDisplaying: Bool {
+        didSet {
+            guard !isDisplaying else {
+                return
+            }
+            stickersToInsertOnEndDisplaying?.forEach(insert(sticker:))
+            stickersToInsertOnEndDisplaying = nil
+        }
+    }
+    
+    private var stickersToInsertOnEndDisplaying: [StickerItem]?
     
     init(index: Int) {
         super.init(nibName: nil, bundle: nil)
         self.index = index
-        NotificationCenter.default.addObserver(self, selector: #selector(stickerUsedAtDidUpdate(_:)), name: .StickerUsedAtDidUpdate, object: nil)
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(stickerUsedAtDidUpdate(_:)),
+                                               name: StickersViewController.stickerUsedAtDidUpdateNotification,
+                                               object: nil)
     }
     
     required init?(coder aDecoder: NSCoder) {
         super.init(coder: aDecoder)
     }
     
-    override var updateUsedAtAfterSent: Bool {
-        return false
-    }
-    
-    @objc func stickerUsedAtDidUpdate(_ notification: Notification) {
-        guard let sticker = notification.object as? Sticker else {
+    @objc private func stickerUsedAtDidUpdate(_ notification: Notification) {
+        guard let sticker = notification.userInfo?[StickersViewController.stickerUserInfoKey] as? StickerItem else {
             return
         }
-        if let index = stickers.index(where: { $0.stickerId == sticker.stickerId }) {
+        if notification.object as? UIViewController == self {
+            var stickers = stickersToInsertOnEndDisplaying ?? []
+            stickers.append(sticker)
+            stickersToInsertOnEndDisplaying = stickers
+        } else {
+            insert(sticker: sticker)
+        }
+    }
+    
+    private func insert(sticker: StickerItem) {
+        if let index = stickers.firstIndex(where: { $0.stickerId == sticker.stickerId }) {
             collectionView.performBatchUpdates({
                 stickers.remove(at: index)
                 stickers.insert(sticker, at: 0)

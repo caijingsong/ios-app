@@ -1,0 +1,316 @@
+import UIKit
+import CryptoKit
+import MixinServices
+
+final class LoginWithMnemonicViewController: IntroductionViewController, LoginAccountHandler {
+    
+    enum Action {
+        case signInWithMixinMnemonics(MixinMnemonics)
+        case signInWithBIP39Mnemonics(MixinMnemonics)
+        case signUp(MixinMnemonics?)
+    }
+    
+    private let action: Action
+    private let busyIndicator = ActivityIndicatorView()
+    
+    private lazy var captcha = Captcha(viewController: self)
+    
+    private weak var loginButtonIfLoaded: UIButton?
+    
+    private var loginContext: LoginContext?
+    
+    init(action: Action) {
+        self.action = action
+        super.init()
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("Storyboard is not supported")
+    }
+    
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        imageViewTopConstraint.constant = switch ScreenHeight.current {
+        case .short:
+            40
+        case .medium:
+            80
+        case .long, .extraLong:
+            120
+        }
+        contentLabelTopConstraint.constant = 16
+        imageView.image = R.image.mnemonic_login()
+        contentTextView.font = UIFontMetrics.default.scaledFont(for: .systemFont(ofSize: 14))
+        contentTextView.adjustsFontForContentSizeCategory = true
+        contentTextView.textAlignment = .center
+        actionStackView.spacing = 10
+        actionButton.addTarget(self, action: #selector(login(_:)), for: .touchUpInside)
+        actionButton.setTitle(R.string.localizable.retry(), for: .normal)
+        actionButton.titleLabel?.setFont(scaledFor: .systemFont(ofSize: 16, weight: .medium), adjustForContentSize: true)
+        switch action {
+        case .signInWithMixinMnemonics, .signInWithBIP39Mnemonics:
+            break
+        case .signUp:
+            var config: UIButton.Configuration = .plain()
+            config.titleAlignment = .center
+            var attributes = AttributeContainer()
+            attributes.font = UIFontMetrics.default.scaledFont(
+                for: .systemFont(ofSize: 16, weight: .medium)
+            )
+            attributes.foregroundColor = R.color.theme()
+            config.attributedTitle = AttributedString(
+                R.string.localizable.sign_up_have_account(),
+                attributes: attributes
+            )
+            config.contentInsets = NSDirectionalEdgeInsets(top: 12, leading: 0, bottom: 11, trailing: 0)
+            let loginButton = UIButton(configuration: config)
+            actionStackView.addArrangedSubview(loginButton)
+            loginButton.addTarget(self, action: #selector(goToSignIn(_:)), for: .touchUpInside)
+            loginButtonIfLoaded = loginButton
+        }
+        busyIndicator.tintColor = R.color.outline_primary()
+        actionStackView.addArrangedSubview(busyIndicator)
+        busyIndicator.snp.makeConstraints { make in
+            make.height.equalTo(48)
+        }
+        
+        login(self)
+    }
+    
+    @objc private func presentCustomerService(_ sender: Any) {
+        let customerService = CustomerServiceViewController(
+            presentLoginLogsOnLongPressingTitle: true,
+            reportingTags: ["source": "login_mnemonic_phrase"],
+        )
+        present(customerService, animated: true)
+    }
+    
+    @objc private func login(_ sender: Any) {
+        showLoading()
+        if let context = loginContext {
+            Logger.login.info(category: "MnemonicLogin", message: "Using saved context")
+            login(context: context)
+        } else {
+            DispatchQueue.global().async { [action, weak self] in
+                do {
+                    let mnemonics: MixinMnemonics
+                    switch action {
+                    case let .signInWithMixinMnemonics(m):
+                        mnemonics = m
+                        Logger.login.info(category: "MnemonicLogin", message: "Sign in with arbitrary mixin mnemonics")
+                    case let .signInWithBIP39Mnemonics(m):
+                        mnemonics = m
+                        Logger.login.info(category: "MnemonicLogin", message: "Sign in with arbitrary bip39 mnemonics")
+                    case .signUp(let m):
+                        if let m {
+                            mnemonics = m
+                            Logger.login.info(category: "MnemonicLogin", message: "Sign up with arbitrary mnemonics")
+                        } else {
+                            mnemonics = try .random()
+                            // Save generated random mnemonics
+                            AppGroupKeychain.mnemonics = mnemonics.entropy
+                            Logger.login.info(category: "MnemonicLogin", message: "Sign up with random mnemonics")
+                        }
+                    }
+                    self?.verifySession(mnemonics: mnemonics, captchaToken: nil)
+                } catch {
+                    Logger.login.error(category: "MnemonicLogin", message: "\(error)")
+                    DispatchQueue.main.async {
+                        self?.showError(error.localizedDescription)
+                    }
+                }
+            }
+        }
+    }
+    
+    @objc private func goToSignIn(_ sender: Any) {
+        let signIn = SignInWithMobileNumberViewController(loginSource: "sign_up")
+        navigationController?.pushViewController(replacingCurrent: signIn, animated: true)
+    }
+    
+    private func showLoading() {
+        navigationItem.rightBarButtonItem = nil
+        titleLabel.text = switch action {
+        case .signInWithMixinMnemonics, .signInWithBIP39Mnemonics:
+            R.string.localizable.signing_in_to_your_account()
+        case .signUp:
+            R.string.localizable.creating_your_account()
+        }
+        busyIndicator.startAnimating()
+        actionButton.isHidden = true
+        loginButtonIfLoaded?.isHidden = true
+        contentTextView.textColor = R.color.text_tertiary()
+        contentTextView.text = R.string.localizable.mnemonic_phrase_take_long()
+        contentTextView.isHidden = false
+    }
+    
+    private func showError(_ description: String) {
+        navigationItem.rightBarButtonItem = .customerService(
+            target: self,
+            action: #selector(presentCustomerService(_:))
+        )
+        switch action {
+        case .signInWithMixinMnemonics, .signInWithBIP39Mnemonics:
+            titleLabel.text = R.string.localizable.signing_in_to_your_account()
+        case .signUp:
+            titleLabel.text = R.string.localizable.account_creation_failed()
+        }
+        busyIndicator.stopAnimating()
+        actionButton.isHidden = false
+        loginButtonIfLoaded?.isHidden = false
+        contentTextView.textColor = R.color.error_red()
+        contentTextView.text = description
+        contentTextView.isHidden = false
+    }
+    
+}
+
+extension LoginWithMnemonicViewController: Captcha.Reporting {
+    
+    var reportingContent: (event: Reporter.Event, type: String?) {
+        switch action {
+        case .signUp:
+            (event: .signUpCAPTCHA, type: nil)
+        case .signInWithMixinMnemonics, .signInWithBIP39Mnemonics:
+            (event: .loginCAPTCHA, type: "mnemonic_phrase")
+        }
+    }
+    
+}
+
+extension LoginWithMnemonicViewController {
+    
+    private enum LoginError: Error {
+        case loadVerificationID
+    }
+    
+    private struct LoginContext {
+        let masterKey: Ed25519PrivateKey
+        let verificationID: String
+        let sessionKey = Ed25519PrivateKey()
+    }
+    
+    private func verifySession(mnemonics: MixinMnemonics, captchaToken: CaptchaToken?) {
+        Logger.login.info(category: "MnemonicLogin", message: "Verificate")
+        let context: SessionVerificationContext
+        do {
+            context = try SessionVerificationContext(mnemonics: mnemonics)
+        } catch {
+            Logger.login.error(category: "MnemonicLogin", message: "\(error)")
+            DispatchQueue.main.async { [weak self] in
+                self?.showError(error.localizedDescription)
+            }
+            return
+        }
+        AccountAPI.anonymousSessionVerifications(
+            publicKey: context.publicKey,
+            message: context.message,
+            signature: context.signature,
+            captchaToken: captchaToken
+        ) { [weak self] result in
+            guard let self else {
+                return
+            }
+            switch result {
+            case .success(let verification):
+                let context = LoginContext(
+                    masterKey: context.masterKey,
+                    verificationID: verification.id
+                )
+                self.loginContext = context
+                if let deactivation = verification.deactivation {
+                    let window = DeleteAccountAbortWindow(deactivation: deactivation) { abort in
+                        if abort {
+                            self.navigationController?.popToRootViewController(animated: true)
+                        } else {
+                            self.login(context: context)
+                        }
+                    }
+                    self.present(window, animated: true)
+                } else {
+                    self.login(context: context)
+                }
+            case let .failure(.response(error)) where .requiresCaptcha ~= error:
+                Logger.login.info(category: "MnemonicLogin", message: "Captcha")
+                self.captcha.validate(errorDescription: error.description) { [weak self] (result) in
+                    switch result {
+                    case .success(let token):
+                        self?.verifySession(mnemonics: mnemonics, captchaToken: token)
+                    case .cancel, .timedOut:
+                        self?.navigationController?.popViewController(animated: true)
+                    }
+                }
+            case .failure(let error):
+                Logger.login.error(category: "MnemonicLogin", message: "\(error)")
+                switch action {
+                case .signInWithMixinMnemonics, .signInWithBIP39Mnemonics:
+                    reporter.report(event: .errorSessionVerifications, tags: ["source":"login"])
+                case .signUp:
+                    reporter.report(event: .errorSessionVerifications, tags: ["source":"sign_up"])
+                }
+                self.showError(error.localizedDescription)
+            }
+        }
+    }
+    
+    private func login(context: LoginContext) {
+        Logger.login.info(category: "MnemonicLogin", message: "Login")
+        do {
+            guard let idData = context.verificationID.data(using: .utf8) else {
+                throw LoginError.loadVerificationID
+            }
+            SignalProtocol.shared.initSignal()
+            let masterSignature = try context.masterKey.signature(for: idData)
+            let registrationID = Int(SignalProtocol.shared.getRegistrationId())
+            let sessionSecret = context.sessionKey.publicKey.rawRepresentation
+            AccountAPI.login(
+                verificationID: context.verificationID,
+                masterSignature: masterSignature,
+                registrationID: registrationID,
+                sessionSecret: sessionSecret
+            ) { [weak self] result in
+                guard let self else {
+                    return
+                }
+                switch result {
+                case let .success(account):
+                    let intent: AccountVerificationIntent
+                    switch self.action {
+                    case let .signInWithMixinMnemonics(mnemonics):
+                        intent = .signIn(.mixinMnemonics)
+                        if account.isAnonymous {
+                            AppGroupKeychain.mnemonics = mnemonics.entropy
+                            Logger.login.info(category: "MnemonicLogin", message: "Mnemonics saved to Keychain")
+                        }
+                    case let .signInWithBIP39Mnemonics(mnemonics):
+                        intent = .signIn(.bip39Mnemonics)
+                        if account.isAnonymous {
+                            AppGroupKeychain.mnemonics = mnemonics.entropy
+                            Logger.login.info(category: "MnemonicLogin", message: "Mnemonics saved to Keychain")
+                        }
+                    case .signUp:
+                        intent = .signUp(.mixinMnemonics)
+                        reporter.report(event: .signUpAccountCreated)
+                    }
+                    let error = self.login(
+                        account: account,
+                        intent: intent,
+                        sessionKey: context.sessionKey,
+                    )
+                    if let error {
+                        Logger.login.error(category: "MnemonicLogin", message: "\(error)")
+                        self.showError(error.localizedDescription)
+                    }
+                case let .failure(error):
+                    Logger.login.error(category: "MnemonicLogin", message: "\(error)")
+                    self.showError(error.localizedDescription)
+                }
+            }
+        } catch {
+            Logger.login.error(category: "MnemonicLogin", message: "\(error)")
+            self.loginContext = nil
+            self.showError(error.localizedDescription)
+        }
+    }
+    
+}

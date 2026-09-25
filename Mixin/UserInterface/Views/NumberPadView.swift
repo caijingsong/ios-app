@@ -1,33 +1,41 @@
 import UIKit
-import AVKit
+import MixinServices
 
-class NumberPadView: UIView, XibDesignable {
+final class NumberPadView: UIView, XibDesignable {
 
+    @IBOutlet weak var tipView: UIView!
+    
     @IBOutlet weak var contentViewBottomConstraint: NSLayoutConstraint!
+    @IBOutlet weak var tipViewHeightConstraint: NSLayoutConstraint!
     
     weak var target: UIKeyInput?
     
     private let contentBottomMargin: CGFloat = 2
     
     private var contentHeight: CGFloat {
-        let height: CGFloat = 226
-        if bottomSafeAreaInset > 0 {
-            return height - 10
-        } else {
-            return height
+        switch ScreenHeight.current {
+        case .short, .medium, .long:
+            246
+        case .extraLong:
+            256
         }
     }
     
     private var bottomSafeAreaInset: CGFloat {
-        if #available(iOS 11.0, *) {
-            var bottom = UIApplication.shared.keyWindow?.safeAreaInsets.bottom ?? 0
-            if bottom > 0 {
-                bottom += 41
+        if windowSafeAreaInsets.bottom > 0 {
+            switch ScreenHeight.current {
+            case .short, .medium:
+                return 58
+            case .long, .extraLong:
+                return 75
             }
-            return bottom
         } else {
             return 0
         }
+    }
+    
+    override var intrinsicContentSize: CGSize {
+        return CGSize(width: bounds.width, height: contentHeight + bottomSafeAreaInset)
     }
     
     required init?(coder aDecoder: NSCoder) {
@@ -40,11 +48,19 @@ class NumberPadView: UIView, XibDesignable {
         prepare()
     }
 
+    override func safeAreaInsetsDidChange() {
+        super.safeAreaInsetsDidChange()
+        updateBottomInset()
+        invalidateIntrinsicContentSize()
+    }
+
     @IBAction func inputAction(_ sender: Any) {
         guard let sender = sender as? NumberPadButton else {
             return
         }
-        UIDevice.current.playInputClick()
+        if !UIScreen.main.isCaptured {
+            UIDevice.current.playInputClick()
+        }
         target?.insertText(String(sender.number))
     }
     
@@ -53,13 +69,19 @@ class NumberPadView: UIView, XibDesignable {
         target?.deleteBackward()
     }
     
+    private func updateBottomInset() {
+        contentViewBottomConstraint.constant = contentBottomMargin + bottomSafeAreaInset
+        self.bounds = CGRect(x: 0,
+                             y: 0,
+                             width: bounds.width > 0 ? bounds.width : UIScreen.main.bounds.width,
+                             height: contentHeight + bottomSafeAreaInset)
+        layoutIfNeeded()
+    }
+
     private func prepare() {
         loadXib()
-        var bounds = UIScreen.main.bounds
-        bounds.size.height = contentHeight + bottomSafeAreaInset
-        contentViewBottomConstraint.constant = contentBottomMargin + bottomSafeAreaInset
-        self.bounds = bounds
-        layoutIfNeeded()
+        backgroundColor = R.color.keyboard_background_14()
+        updateBottomInset()
     }
     
 }

@@ -1,27 +1,53 @@
-platform :ios, '10.0'
-source 'https://github.com/CocoaPods/Specs.git'
+install! 'cocoapods',
+:generate_multiple_pod_projects => true
+
+platform :ios, '15.0'
+
+def mixin_services
+  pod 'libsignal-protocol-c', :git => 'https://github.com/MixinNetwork/libsignal-protocol-c.git'
+  pod 'TIP', :path => './MixinServices'
+  pod 'XKCP_FIPS202', :path => './MixinServices'
+  pod 'MixinServices', :path => './MixinServices', :testspecs => ['Tests']
+end
 
 target 'Mixin' do
   use_frameworks!
   inhibit_all_warnings!
 
-  pod 'Alamofire'
-  pod 'Bugsnag'
   pod 'Firebase/Core'
   pod 'Firebase/Analytics'
-  pod 'SDWebImageYYPlugin/YYImage'
-  pod 'YYImage/WebP'
-  pod 'SnapKit', '~> 4.0.1'
-  pod 'SocketRocket'
-  pod 'PhoneNumberKit'
-  pod 'GzipSwift'
-  pod 'RSKImageCropper'
-  pod 'DeviceGuru'
-  pod 'JWT', '~> 3.0.0-beta.7'
-  pod 'SwiftMessages'
-  pod 'Zip', '~> 1.1'
-  pod 'SignalProtocolC', :git => 'git@github.com:MixinMessenger/SignalProtocolC.git', :submodules => true
-  pod 'WCDB.swift', :git => 'git@github.com:wuyuehyang/wcdb.git', :branch => 'swift4.2'
-  pod 'GiphyCoreSDK'
+  pod 'Firebase/Performance'
+  pod 'Firebase/Crashlytics'
+  pod 'SnapKit'
+  pod 'AppsFlyerFramework'
+  pod 'PhoneNumberKit', :git => 'https://github.com/marmelroy/PhoneNumberKit'
+  pod 'libwebp'
+  pod 'SDWebImageLottieCoder'
+  pod 'SDWebImageSVGCoder'
+  mixin_services
 
+  target 'MixinTests' do
+    inherit! :search_paths
+  end
+end
+
+target 'MixinNotificationService' do
+  use_frameworks!
+  inhibit_all_warnings!
+  
+  mixin_services
+end
+
+target 'MixinShare' do
+  use_frameworks!
+  inhibit_all_warnings!
+
+  pod 'SDWebImageLottieCoder'
+  mixin_services
+end
+
+target 'MixinDebug' do
+  use_frameworks!
+  inhibit_all_warnings!
+  mixin_services
 end

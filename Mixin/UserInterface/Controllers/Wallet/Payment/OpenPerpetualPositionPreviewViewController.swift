@@ -1,0 +1,382 @@
+import UIKit
+import MixinServices
+
+final class OpenPerpetualPositionPreviewViewController: WalletIdentifyingAuthenticationPreviewViewController {
+    
+    private let context: Payment.PerpsContext
+    private let operation: TransferPaymentOperation
+    
+    private var hasSucceeded = false
+    
+    init(
+        context: Payment.PerpsContext,
+        operation: TransferPaymentOperation,
+        warnings: [String]
+    ) {
+        self.context = context
+        self.operation = operation
+        super.init(wallet: context.wallet, warnings: warnings)
+    }
+    
+    @MainActor required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+    
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        
+        tableHeaderView.setTokenIcon(url: context.viewModel.iconURL)
+        tableHeaderView.titleLabel.text = switch context.operation {
+        case .open:
+            R.string.localizable.confirm_opening_position()
+        case .increasePosition:
+            R.string.localizable.confirm_adding_position()
+        case .increaseMargin:
+            R.string.localizable.perps_confirm_add_margin()
+        }
+        tableHeaderView.subtitleTextView.text = R.string.localizable.signature_request_from(.mixin)
+        
+        let amount = CurrencyFormatter.localizedString(
+            from: operation.amount,
+            format: .precision,
+            sign: .never,
+            symbol: .custom(operation.token.symbol)
+        )
+        var rows: [Row]
+        rows = [
+            .perpsPositions([(
+                iconURL: context.viewModel.iconURL,
+                name: context.viewModel.market.displaySymbol,
+                side: context.side,
+                leverage: nil
+            )])
+        ]
+        let liquidationMargin: Decimal
+        switch context.operation {
+        case .open:
+            liquidationMargin = operation.amount
+            let multiplier = PerpetualLeverage.stringRepresentation(
+                multiplier: context.leverageMultiplier
+            )
+            let direction = switch context.side {
+            case .long:
+                R.string.localizable.long_asset(multiplier)
+            case .short:
+                R.string.localizable.short_asset(multiplier)
+            }
+            let profit = PerpetualChangeSimulation.profit(
+                side: context.side,
+                margin: operation.amount,
+                leverageMultiplier: context.leverageMultiplier,
+                priceChangePercent: 0.01
+            )
+            rows.append(contentsOf: [
+                .doubleLineInfo(
+                    caption: .string(R.string.localizable.direction()),
+                    primary: direction,
+                    secondary: .plain(profit),
+                ),
+                .info(
+                    caption: .string(R.string.localizable.amount()),
+                    content: amount
+                ),
+                .info(
+                    caption: .string(R.string.localizable.entry_price()),
+                    content: context.viewModel.price
+                ),
+            ])
+        case let .increasePosition(quantity, margin):
+            liquidationMargin = margin + operation.amount
+            let before = CurrencyFormatter.localizedString(
+                from: quantity,
+                format: .precision,
+                sign: .never,
+                symbol: .custom(context.viewModel.market.tokenSymbol)
+            )
+            let afterQuantity = quantity +
+                operation.amount * context.leverageMultiplier / context.viewModel.decimalPrice
+            let after = CurrencyFormatter.localizedString(
+                from: afterQuantity,
+                format: .precision,
+                sign: .never,
+                symbol: .custom(context.viewModel.market.tokenSymbol)
+            )
+            let change = PerpPositionAdjustment.change(from: before, to: after)
+            rows.append(.doubleLineInfo(
+                caption: .amount,
+                primary: amount,
+                secondary: .plain(
+                    R.string.localizable.add_position_total_size() + " " + change
+                ),
+            ))
+        case let .increaseMargin(margin):
+            liquidationMargin = margin + operation.amount
+            let before = CurrencyFormatter.localizedString(
+                from: margin,
+                format: .fiatMoneyPretty,
+                sign: .never,
+                symbol: .dollarSign
+            )
+            let after = CurrencyFormatter.localizedString(
+                from: margin + operation.amount,
+                format: .fiatMoneyPretty,
+                sign: .never,
+                symbol: .dollarSign
+            )
+            let change = PerpPositionAdjustment.change(from: before, to: after)
+            rows.append(.doubleLineInfo(
+                caption: .amount,
+                primary: amount,
+                secondary: .plain(
+                    R.string.localizable.perps_total_margin() + " " + change
+                ),
+            ))
+        }
+        
+        if let takeProfitPrice = context.takeProfitPrice {
+            let price = takeProfitPrice.formatted(
+                context.viewModel.userDisplayPriceFormatStyle
+            )
+            let priceChange = (takeProfitPrice - context.viewModel.decimalPrice) / context.viewModel.decimalPrice
+            let maxChange = PerpsAutoClosingCondition.maxChange(
+                margin: operation.amount,
+                side: context.side,
+                leverage: context.leverageMultiplier,
+                behavior: .takeProfit,
+                currentPrice: context.viewModel.decimalPrice,
+                closingPrice: takeProfitPrice,
+            )
+            let simulation = R.string.localizable.price_change_take_profit(
+                PercentageFormatter.string(
+                    from: priceChange,
+                    format: .pretty,
+                    sign: .always
+                ),
+                maxChange
+            )
+            let attributedSimulation = NSMutableAttributedString(
+                string: simulation,
+                attributes: [.foregroundColor: R.color.text_quaternary()!]
+            )
+            if let range = simulation.range(of: maxChange, options: .backwards) {
+                attributedSimulation.setAttributes(
+                    [.foregroundColor: MarketColor.rising.uiColor],
+                    range: NSRange(range, in: simulation)
+                )
+            }
+            rows.append(
+                .doubleLineInfo(
+                    caption: .string(R.string.localizable.take_profit()),
+                    primary: price,
+                    secondary: .attributed(attributedSimulation),
+                ),
+            )
+        }
+        
+        if let stopLossPrice = context.stopLossPrice {
+            let price = stopLossPrice.formatted(
+                context.viewModel.userDisplayPriceFormatStyle
+            )
+            let priceChange = (stopLossPrice - context.viewModel.decimalPrice) / context.viewModel.decimalPrice
+            let maxChange = PerpsAutoClosingCondition.maxChange(
+                margin: operation.amount,
+                side: context.side,
+                leverage: context.leverageMultiplier,
+                behavior: .stopLoss,
+                currentPrice: context.viewModel.decimalPrice,
+                closingPrice: stopLossPrice,
+            )
+            let simulation = R.string.localizable.price_change_stop_loss(
+                PercentageFormatter.string(
+                    from: priceChange,
+                    format: .pretty,
+                    sign: .always
+                ),
+                maxChange
+            )
+            let attributedSimulation = NSMutableAttributedString(
+                string: simulation,
+                attributes: [.foregroundColor: R.color.text_quaternary()!]
+            )
+            if let range = simulation.range(of: maxChange, options: .backwards) {
+                attributedSimulation.setAttributes(
+                    [.foregroundColor: MarketColor.falling.uiColor],
+                    range: NSRange(range, in: simulation)
+                )
+            }
+            rows.append(
+                .doubleLineInfo(
+                    caption: .string(R.string.localizable.stop_loss()),
+                    primary: price,
+                    secondary: .attributed(attributedSimulation),
+                ),
+            )
+        }
+        
+        let liquidationPrice = context.liquidationPrice.formatted(
+            context.viewModel.userDisplayPriceFormatStyle
+        )
+        let liquidation = PerpetualChangeSimulation.liquidation(
+            side: context.side,
+            margin: liquidationMargin,
+            entryPrice: context.viewModel.decimalPrice,
+            liquidationPrice: context.liquidationPrice,
+        )
+        rows.append(
+            .doubleLineInfo(
+                caption: .string(R.string.localizable.estimated_liquidation_price()),
+                primary: liquidationPrice,
+                secondary: .plain(liquidation)
+            )
+        )
+        
+        switch operation.destination {
+        case let .user(item):
+            rows.append(.receivers([item], threshold: nil))
+        default:
+            break
+        }
+        rows.append(.wallet(caption: .sender, wallet: context.wallet, threshold: nil))
+        if let memo = operation.extra.plainValue {
+            rows.append(.info(caption: .memo, content: memo))
+        }
+        
+        reloadData(with: rows)
+    }
+    
+    override func confirm(_ sender: Any) {
+        super.confirm(sender)
+        switch context.operation {
+        case .open:
+            reporter.report(event: .tradePerpsOpenPreviewConfirm)
+        case .increasePosition:
+            reporter.report(event: .tradePerpsAddPositionPreviewConfirm)
+        case .increaseMargin:
+            reporter.report(event: .tradePerpsAddMarginPreviewConfirm)
+        }
+    }
+    
+    override func close(_ sender: Any) {
+        super.close(sender)
+        if !hasSucceeded {
+            switch context.operation {
+            case .open:
+                reporter.report(event: .tradePerpsOpenPreviewCancel)
+            case .increasePosition:
+                reporter.report(event: .tradePerpsAddPositionPreviewCancel)
+            case .increaseMargin:
+                reporter.report(event: .tradePerpsAddMarginPreviewCancel)
+            }
+        }
+    }
+    
+    override func performAction(with pin: String) {
+        canDismissInteractively = false
+        tableHeaderView.setIcon(progress: .busy)
+        layoutTableHeaderView(
+            title: R.string.localizable.submitting_position(),
+            subtitle: R.string.localizable.signature_request_from(.mixin)
+        )
+        replaceTrayView(with: nil, animation: .vertical)
+        Task { [context] in
+            do {
+                try await operation.start(pin: pin)
+                UIDevice.current.playPaymentSuccess()
+                await MainActor.run {
+                    canDismissInteractively = true
+                    hasSucceeded = true
+                    tableHeaderView.setIcon(progress: .success)
+                    switch context.operation {
+                    case .open, .increasePosition:
+                        layoutTableHeaderView(
+                            title: R.string.localizable.position_submitted(),
+                            subtitle: R.string.localizable.position_submitted_description()
+                        )
+                    case .increaseMargin:
+                        layoutTableHeaderView(
+                            title: R.string.localizable.perps_margin_submitted(),
+                            subtitle: R.string.localizable.position_submitted_description()
+                        )
+                    }
+                    tableView.setContentOffset(.zero, animated: true)
+                    loadFinishedTrayView()
+                    if let navigationController = UIApplication.shared.homeNavigationController {
+                        var viewControllers = navigationController.viewControllers
+                        viewControllers.removeAll { viewController in
+                            viewController is OpenPerpsPositionViewController
+                        }
+                        if context.presentMarketViewOnSuccess,
+                           !(viewControllers.last is PerpetualMarketViewController)
+                        {
+                            let market = PerpetualMarketViewController(
+                                wallet: context.wallet,
+                                viewModel: context.viewModel,
+                            )
+                            reporter.report(
+                                event: .marketDetail,
+                                tags: ["type": "perps", "source": "open_position"]
+                            )
+                            viewControllers.append(market)
+                        }
+                        navigationController.setViewControllers(viewControllers, animated: false)
+                    }
+                    if let callback = context.onDismissAfterSuccess {
+                        onDismiss = callback
+                    }
+                    switch context.operation {
+                    case .open:
+                        reporter.report(
+                            event: .tradePerpsOpenEnd,
+                            tags: [
+                                "leverage": "\(context.leverageMultiplier)",
+                                "asset_level": Reporter.assetLevel(decimalUSDPrice: operation.token.decimalUSDPrice, decimalAmount: operation.amount),
+                            ]
+                        )
+                    case .increasePosition:
+                        reporter.report(event: .tradePerpsAddPositionEnd)
+                    case .increaseMargin:
+                        reporter.report(event: .tradePerpsAddMarginEnd)
+                    }
+                }
+            } catch {
+                let errorDescription = if let error = error as? MixinAPIError, PINVerificationFailureHandler.canHandle(error: error) {
+                    await PINVerificationFailureHandler.handle(error: error)
+                } else {
+                    error.localizedDescription
+                }
+                await MainActor.run {
+                    canDismissInteractively = true
+                    tableHeaderView.setIcon(progress: .failure)
+                    let title = switch context.operation {
+                    case .open, .increasePosition:
+                        R.string.localizable.position_opening_failed()
+                    case .increaseMargin:
+                        R.string.localizable.perps_adding_margin_failed()
+                    }
+                    layoutTableHeaderView(
+                        title: title,
+                        subtitle: errorDescription,
+                        style: .destructive
+                    )
+                    tableView.setContentOffset(.zero, animated: true)
+                    switch error {
+                    case MixinAPIResponseError.malformedPin, MixinAPIResponseError.incorrectPin, TIPNode.Error.response(.incorrectPIN), TIPNode.Error.response(.internalServer):
+                        loadDoubleButtonTrayView(
+                            leftTitle: R.string.localizable.cancel(),
+                            leftAction: #selector(close(_:)),
+                            rightTitle: R.string.localizable.retry(),
+                            rightAction: #selector(confirm(_:)),
+                            animation: .vertical
+                        )
+                    default:
+                        loadSingleButtonTrayView(
+                            title: R.string.localizable.got_it(),
+                            action: #selector(close(_:))
+                        )
+                    }
+                }
+            }
+        }
+    }
+    
+}

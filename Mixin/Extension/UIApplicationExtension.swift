@@ -1,72 +1,87 @@
 import Foundation
-import Bugsnag
-import UserNotifications
-import Firebase
 import SafariServices
+import MixinServices
 
 extension UIApplication {
-
-    class func appDelegate() -> AppDelegate  {
-        return UIApplication.shared.delegate as! AppDelegate
+    
+    static var isApplicationActive: Bool {
+        if Thread.isMainThread {
+            return UIApplication.shared.applicationState == .active
+        } else {
+            var isActive = false
+            DispatchQueue.main.sync {
+                isActive = UIApplication.shared.applicationState == .active
+            }
+            return isActive
+        }
     }
-
-    static func rootNavigationController() -> UINavigationController? {
-        return UIApplication.shared.keyWindow?.rootViewController as? UINavigationController
+    
+    var firstWindowScene: UIWindowScene? {
+        connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first
     }
-
-    static func currentActivity() -> UIViewController? {
-        return rootNavigationController()?.visibleViewController
+    
+    var homeContainerViewController: HomeContainerViewController? {
+        firstWindowScene?.windows
+            .lazy
+            .compactMap { $0.rootViewController as? HomeContainerViewController }
+            .first
     }
-
-    static func currentConversationId() -> String? {
-        guard let lastVC = rootNavigationController()?.viewControllers.last, let chatVC = lastVC as? ConversationViewController else {
+    
+    var homeNavigationController: HomeNavigationController? {
+        homeContainerViewController?.homeNavigationController
+    }
+    
+    var applicationStateString: String {
+        switch applicationState {
+        case .active:
+            return "active"
+        case .background:
+            return "background"
+        case .inactive:
+            return "inactive"
+        @unknown default:
+            return "unknown"
+        }
+    }
+    
+    func currentConversationId() -> String? {
+        return currentConversationViewController()?.conversationId
+    }
+    
+    func currentConversationViewController() -> ConversationViewController? {
+        guard UIApplication.shared.applicationState == .active else {
             return nil
         }
-        return chatVC.dataSource?.conversationId
-    }
-
-    static func logEvent(eventName: String, parameters: [String: Any]? = nil) {
-        #if RELEASE
-        Analytics.logEvent(eventName, parameters: parameters as? [String: NSObject])
-        #endif
-    }
-
-    static func trackError(_ category: String, action: String, userInfo aUserInfo: [AnyHashable: Any]? = nil) {
-        #if RELEASE
-        if let aUserInfo = aUserInfo {
-            Bugsnag.notify(NSException(name: NSExceptionName(rawValue: category), reason: action, userInfo: nil)) {
-                (report) -> Void in
-                report.addMetadata(aUserInfo, toTabWithName: "Track")
-            }
-        } else {
-            Bugsnag.notify(NSException(name: NSExceptionName(rawValue: category), reason: action, userInfo: nil))
+        guard let lastVC = homeNavigationController?.viewControllers.last else {
+            return nil
         }
-        #endif
+        return lastVC as? ConversationViewController
     }
-
-    static func getTrackUserInfo() -> [AnyHashable: Any] {
-        var userInfo = [AnyHashable: Any]()
-        userInfo["didLogin"] = AccountAPI.shared.didLogin
-        if let account = AccountAPI.shared.account {
-            userInfo["full_name"] = account.full_name
-            userInfo["identity_number"] = account.identity_number
-        }
-        userInfo["lastUpdateOrInstallTime"] = CommonUserDefault.shared.lastUpdateOrInstallTime
-        userInfo["clientTime"] = DateFormatter.filename.string(from: Date())
-        return userInfo
-    }
-
+    
 }
 
 extension UIApplication {
-
-    public static func openAppSettings() {
+    
+    public func openAppSettings() {
         guard let settingsURL = URL(string: UIApplication.openSettingsURLString) else {
             return
         }
         UIApplication.shared.open(settingsURL, options: [:], completionHandler: nil)
     }
-
+    
+    public func openNotificationSettings() {
+        let url = if #available(iOS 16.0, *)  {
+            URL(string: UIApplication.openNotificationSettingsURLString)
+        } else {
+            URL(string: UIApplication.openSettingsURLString)
+        }
+        if let url {
+            UIApplication.shared.open(url, options: [:], completionHandler: nil)
+        }
+    }
+    
     public func openURL(url: String) {
         guard let url = URL(string: url) else {
             return
@@ -76,11 +91,26 @@ extension UIApplication {
 
     public func openURL(url: URL) {
         if ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
-            UIApplication.rootNavigationController()?.present(SFSafariViewController(url: url), animated: true, completion: nil)
+            homeNavigationController?.present(SFSafariViewController(url: url), animated: true, completion: nil)
         } else if UIApplication.shared.canOpenURL(url) {
             UIApplication.shared.open(url, options: [:], completionHandler: nil)
         } else {
-            Bugsnag.notify(NSException(name: NSExceptionName(rawValue: "Unrecognized URL"), reason: nil, userInfo: ["URL": url.absoluteString]))
+            let error = MixinError.unrecognizedUrl(url)
+            reporter.report(error: error)
+        }
+    }
+    
+}
+
+extension UIApplication {
+    
+    func setShortcutItemsEnabled(_ enabled: Bool) {
+        DispatchQueue.main.async {
+            if enabled {
+                UIApplication.shared.shortcutItems = [.wallet, .scanQrCode, .myQrCode]
+            } else {
+                UIApplication.shared.shortcutItems = nil
+            }
         }
     }
     

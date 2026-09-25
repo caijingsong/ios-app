@@ -1,20 +1,16 @@
 import UIKit
+import MixinServices
 
-class AddressCell: UITableViewCell {
-
-    static let cellReuseId = "AddressCell"
-
+final class AddressCell: ModernSelectedBackgroundCell {
+    
     @IBOutlet weak var nameLabel: UILabel!
     @IBOutlet weak var addressLabel: UILabel!
+    @IBOutlet weak var dateLabel: UILabel!
     
-    func render(address: Address, asset: AssetItem) {
-        if asset.isAccount {
-            nameLabel.text = address.accountName
-            addressLabel.text = address.accountTag
-        } else {
-            nameLabel.text = address.label
-            addressLabel.text = address.publicKey
-        }
+    func render(address: Address) {
+        nameLabel.text = address.label
+        addressLabel.text = address.fullRepresentation
+        dateLabel.text = address.updatedAt.toUTCDate().timeAgo()
     }
     
 }
